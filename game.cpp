@@ -34,7 +34,7 @@ int CharToElement(char c) {
 
 // --- LOGIC HELPERS ---
 bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_WALL); }
-bool IsProperty(int e) { return (e >= TEXT_IS && e <= TEXT_STOP); }
+bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_STOP); }
 int TextToElement(int textID) {
     if (textID == TEXT_BABA) return BABA;
     if (textID == TEXT_ROCK) return ROCK;
@@ -119,7 +119,7 @@ void CheckWin(GameState& state) {
 
 GameState MakeMove(const GameState& state, int dx, int dy) {
     GameState newState = state;
-    DoMove(newState, dx, dy);
+    DoMove(newState, dx, dy, false);
     ParseRules(newState);
     CheckWin(newState);
     return newState;

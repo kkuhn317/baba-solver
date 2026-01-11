@@ -38,8 +38,8 @@ void DoPush(GameState& state, int x, int y, int dx, int dy) {
     }
 }
 
-void DoMove(GameState& state, int dx, int dy) {
-    undoStack.push_back(state);
+void DoMove(GameState& state, int dx, int dy, bool recordUndo) {
+    if (recordUndo) undoStack.push_back(state);
     
     struct M { int x, y, idx; };
     std::vector<M> moves;

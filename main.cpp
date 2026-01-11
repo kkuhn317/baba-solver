@@ -110,6 +110,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             MessageBoxA(NULL, sol.c_str(), "Optimized Solution", MB_OK);
             return 0;
         }
+        if(wParam == 'L') {
+            std::string sol = SolveLogic(currentState);
+            MessageBoxA(NULL, sol.c_str(), "Logic Solution", MB_OK);
+            return 0;
+        }
 
         if(dx!=0 || dy!=0) {
             if (currentState.hasWon) {

@@ -1,13 +1,13 @@
 #include "solver.h"
 #include "game.h"
-#include "movement.h"
 #include <queue>
 #include <unordered_set>
 #include <tuple>
 #include <iostream>
 #include <utility>
-#include <algorithm> // For std::sort
+#include <algorithm>
 #include <functional>
+#include <set>
 
 // --- AUTO SOLVER ---
 std::string Solve(const GameState& startState) {
@@ -76,12 +76,12 @@ std::string Solve(const GameState& startState) {
 // --- OPTIMIZED SOLVER (PUSH ONLY) ---
 
 // Helper: Find player position (assumes single YOU)
-static std::pair<int, int> FindPlayerPos(GameState& state) {
+std::pair<int, int> FindPlayerPos(const GameState& state) {
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
-            Cell& c = GetCell(state, x, y);
-            for(auto& obj : c.objects) {
-                if(HasProp(state, obj.element, P_YOU)) return {x, y};
+            const Cell& c = GetCell(const_cast<GameState&>(state), x, y);
+            for(const auto& obj : c.objects) {
+                if(HasProp(const_cast<GameState&>(state), obj.element, P_YOU)) return {x, y};
             }
         }
     }
@@ -89,7 +89,7 @@ static std::pair<int, int> FindPlayerPos(GameState& state) {
 }
 
 // Helper: BFS for pathfinding (walking only)
-static std::string GetWalkPath(GameState& state, int sx, int sy, int ex, int ey) {
+static std::string GetWalkPath(const GameState& state, int sx, int sy, int ex, int ey) {
     if (sx == ex && sy == ey) return "";
     
     struct Node { int x, y; std::string path; };
@@ -114,10 +114,10 @@ static std::string GetWalkPath(GameState& state, int sx, int sy, int ex, int ey)
             if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
                 if(!visited[ny * currentWidth + nx]) {
                     bool blocked = false;
-                    Cell& c = GetCell(state, nx, ny);
-                    for(auto& obj : c.objects) {
-                        if(HasProp(state, obj.element, P_STOP)) blocked = true;
-                        if(HasProp(state, obj.element, P_PUSH)) blocked = true;
+                    const Cell& c = GetCell(const_cast<GameState&>(state), nx, ny);
+                    for(const auto& obj : c.objects) {
+                        if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP)) blocked = true;
+                        if(HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) blocked = true;
                     }
                     
                     if(!blocked) {
@@ -179,8 +179,8 @@ static void CanonicalizeState(GameState& state) {
             if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
                 if(!visited[ny * currentWidth + nx]) {
                     bool blocked = false;
-                    Cell& c = GetCell(state, nx, ny);
-                    for(auto& obj : c.objects) {
+                    const Cell& c = GetCell(state, nx, ny);
+                    for(const auto& obj : c.objects) {
                         if(HasProp(state, obj.element, P_STOP)) blocked = true;
                         if(HasProp(state, obj.element, P_PUSH)) blocked = true;
                     }
@@ -200,17 +200,18 @@ struct StateNode {
     std::string path;
     int pushes;
     
+    // Heuristic: Prefer fewer pushes, then shorter paths
     bool operator>(const StateNode& other) const {
         if (pushes != other.pushes) return pushes > other.pushes;
         return path.length() > other.path.length();
     }
 };
 
-std::string SolveOptimized(const GameState& startState) {
+// Generalized Solver: Can look for WIN or look for a RULE
+std::string SolveOptimized(const GameState& startState, int targetNoun, int targetProp, int maxIterations) {
     std::priority_queue<StateNode, std::vector<StateNode>, std::greater<StateNode>> pq;
     std::unordered_set<std::string> visited;
     
-    // Start with the actual state. We will canonicalize on pop to check visited.
     pq.push({startState, "", 0});
     
     int dxs[] = {1, 0, -1, 0};
@@ -218,35 +219,48 @@ std::string SolveOptimized(const GameState& startState) {
     char dcs[] = {'R', 'D', 'L', 'U'};
     
     int iterations = 0;
+    bool solvingForRule = (targetNoun != -1);
+    int maxPushesLogged = -1;
 
     while(!pq.empty()) {
         iterations++;
-        if (iterations % 1000 == 0) {
-            std::cout << "Optimized Solver: " << iterations << " states. PQ: " << pq.size() 
-                      << " | Pushes: " << pq.top().pushes << std::endl;
-        }
+        if (iterations > maxIterations) break;
 
         StateNode current = pq.top(); pq.pop();
+
+        if (current.pushes > maxPushesLogged) {
+            maxPushesLogged = current.pushes;
+            std::cout << "Push Depth: " << maxPushesLogged 
+                      << " | Queue: " << pq.size() 
+                      << " | Visited: " << visited.size() << std::endl;
+        }
+
         GameState state = current.state;
         std::string path = current.path;
-        int pushes = current.pushes;
 
-        if (state.hasWon) return path;
+        // 1. CHECK GOAL
+        if (solvingForRule) {
+            if ((state.propertyMap[TextToElement(targetNoun)] & TextToProp(targetProp)) != 0) {
+                return path;
+            }
+        } else {
+            if (state.hasWon) return path;
+        }
         
-        // Canonicalize for visited check
+        // Canonicalize
         GameState canon = state;
         CanonicalizeState(canon);
         std::string hash = SerializeState(canon);
-        
         if (visited.find(hash) != visited.end()) continue;
         visited.insert(hash);
 
+        // Find Player
         std::pair<int, int> p = FindPlayerPos(state);
         int px = p.first;
         int py = p.second;
         if (px == -1) continue;
         
-        // Re-run flood fill to find push points
+        // 2. BFS FLOOD FILL (Find Push Points)
         std::vector<bool> reach(currentWidth * currentHeight, false);
         std::queue<std::pair<int,int>> fq;
         fq.push({px, py});
@@ -259,12 +273,13 @@ std::string SolveOptimized(const GameState& startState) {
             int cy = curr.second;
             reachable.push_back({cx, cy});
             
-            // Check for WIN at this reachable position
-            Cell& cell = GetCell(state, cx, cy);
-            for(auto& obj : cell.objects) {
-                if(HasProp(state, obj.element, P_WIN)) {
-                    std::string walk = GetWalkPath(state, px, py, cx, cy);
-                    return path + walk;
+            if (!solvingForRule) {
+                const Cell& cell = GetCell(const_cast<GameState&>(state), cx, cy);
+                for(const auto& obj : cell.objects) {
+                    if(HasProp(const_cast<GameState&>(state), obj.element, P_WIN)) {
+                        std::string walk = GetWalkPath(state, px, py, cx, cy);
+                        return path + walk;
+                    }
                 }
             }
             
@@ -273,10 +288,10 @@ std::string SolveOptimized(const GameState& startState) {
                 if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
                     if(!reach[ny*currentWidth+nx]) {
                         bool blocked = false;
-                        Cell& c = GetCell(state, nx, ny);
-                        for(auto& obj : c.objects) {
-                            if(HasProp(state, obj.element, P_STOP)) blocked = true;
-                            if(HasProp(state, obj.element, P_PUSH)) blocked = true;
+                        const Cell& c = GetCell(const_cast<GameState&>(state), nx, ny);
+                        for(const auto& obj : c.objects) {
+                            if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP)) blocked = true;
+                            if(HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) blocked = true;
                         }
                         if(!blocked) {
                             reach[ny*currentWidth+nx] = true;
@@ -287,6 +302,7 @@ std::string SolveOptimized(const GameState& startState) {
             }
         }
         
+        // 3. GENERATE PUSH MOVES
         for(auto& pos : reachable) {
             int rx = pos.first;
             int ry = pos.second;
@@ -296,21 +312,211 @@ std::string SolveOptimized(const GameState& startState) {
                 if(tx < 0 || tx >= currentWidth || ty < 0 || ty >= currentHeight) continue;
                 
                 bool isPush = false;
-                Cell& target = GetCell(state, tx, ty);
-                for(auto& obj : target.objects) {
-                    if(HasProp(state, obj.element, P_PUSH)) { isPush = true; break; }
+                const Cell& target = GetCell(const_cast<GameState&>(state), tx, ty);
+                for(const auto& obj : target.objects) {
+                    if(HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) { isPush = true; break; }
                 }
                 
-                if(isPush && CanMove(state, rx, ry, dx, dy)) {
+                if(isPush && CanMove(const_cast<GameState&>(state), rx, ry, dx, dy)) {
                     GameState nextState = state;
                     TeleportPlayer(nextState, px, py, rx, ry);
                     nextState = MakeMove(nextState, dx, dy);
                     
+                    if (FindPlayerPos(nextState).first == -1) continue;
+
                     std::string walk = GetWalkPath(state, px, py, rx, ry);
-                    pq.push({nextState, path + walk + dcs[i], pushes + 1});
+                    pq.push({nextState, path + walk + dcs[i], current.pushes + 1});
                 }
             }
         }
     }
-    return "No solution found";
+    return "";
+}
+
+// --- THE BRAIN: LOGIC SOLVER ---
+
+struct Rule {
+    int noun;
+    int prop;
+    std::string ToString() const { return std::to_string(noun) + "-" + std::to_string(prop); }
+};
+
+// Scan grid for potential rules (Noun + IS + Prop)
+std::vector<Rule> GetPotentialRules(const GameState& s) {
+    std::set<int> nouns, props;
+    bool hasIs = false;
+
+    for(const auto& cell : s.grid) {
+        for(const auto& o : cell.objects) {
+            if (IsNoun(o.element)) nouns.insert(o.element);
+            if (IsProperty(o.element)) props.insert(o.element);
+            if (o.element == TEXT_IS) hasIs = true;
+        }
+    }
+    
+    std::vector<Rule> potential;
+    if (!hasIs) return potential;
+    
+    for (int n : nouns) for (int p : props) potential.push_back({n, p});
+    return potential;
+}
+
+// Logic State Hash: Rules + Text Positions
+std::string GetLogicHash(const GameState& s) {
+    std::string hash = "";
+    for(int i=0; i<100; i++) if(s.propertyMap[i]) hash += std::to_string(i) + ":" + std::to_string(s.propertyMap[i]) + "|";
+    hash += "_TXT_";
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            const Cell& c = GetCell(const_cast<GameState&>(s), x, y);
+            for(const auto& o : c.objects) {
+                if (o.element >= 10) hash += std::to_string(o.element) + "@" + std::to_string(y*currentWidth+x) + ",";
+            }
+        }
+    }
+    return hash;
+}
+
+// Check if a rule's text components are even potentially accessible
+bool IsRuleReachable(const GameState& s, int noun, int prop) {
+    // 1. Find Player
+    auto [px, py] = FindPlayerPos(s);
+    if (px == -1) return false;
+
+    // 2. Flood Fill to find reachable area
+    std::vector<bool> reachable(currentWidth * currentHeight, false);
+    std::queue<std::pair<int,int>> q;
+    q.push({px, py});
+    reachable[py*currentWidth+px] = true;
+    
+    int dx[] = {1, -1, 0, 0};
+    int dy[] = {0, 0, 1, -1};
+    
+    while(!q.empty()) {
+        auto [cx, cy] = q.front(); q.pop();
+        
+        for(int i=0; i<4; i++) {
+            int nx = cx + dx[i], ny = cy + dy[i];
+            if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
+                if(!reachable[ny*currentWidth+nx]) {
+                    // Stop at WALLS or STOP objects (unless pushable)
+                    bool blocked = false;
+                    const Cell& c = GetCell(const_cast<GameState&>(s), nx, ny);
+                    for(const auto& o : c.objects) {
+                         if (HasProp(const_cast<GameState&>(s), o.element, P_STOP) && 
+                            !HasProp(const_cast<GameState&>(s), o.element, P_PUSH)) blocked = true;
+                    }
+                    if(!blocked) {
+                        reachable[ny*currentWidth+nx] = true;
+                        q.push({nx, ny});
+                    }
+                }
+            }
+        }
+    }
+    
+    // 3. Check if we can "touch" the required text components
+    // We need TEXT_NOUN, TEXT_IS, TEXT_PROP.
+    int required[] = {TextToElement(noun), TEXT_IS, TextToElement(prop)}; // Note: TextToElement actually returns element ID like BABA. We need TEXT_BABA.
+    // Wait, your TextToElement returns BABA for TEXT_BABA. 
+    // We need to check for TEXT objects. 
+    // Let's assume input 'noun' is TEXT_BABA ID.
+    
+    // Correction: GetPotentialRules passes the element ID of the text (e.g. TEXT_BABA).
+    int textNoun = noun;
+    int textProp = prop;
+    
+    bool found[3] = {false, false, false}; // noun, is, prop
+    
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            // If this cell is reachable OR adjacent to reachable (we can push it)
+            bool accessible = false;
+            if (reachable[y*currentWidth+x]) accessible = true;
+            else {
+                for(int i=0; i<4; i++) {
+                    int nx = x+dx[i], ny = y+dy[i];
+                    if(nx>=0 && nx<currentWidth && ny>=0 && ny<currentHeight && reachable[ny*currentWidth+nx]) {
+                        accessible = true; break;
+                    }
+                }
+            }
+            
+            if (accessible) {
+                const Cell& c = GetCell(const_cast<GameState&>(s), x, y);
+                for(const auto& o : c.objects) {
+                    if (o.element == textNoun) found[0] = true;
+                    if (o.element == TEXT_IS) found[1] = true;
+                    if (o.element == textProp) found[2] = true;
+                }
+            }
+        }
+    }
+    
+    return found[0] && found[1] && found[2];
+}
+
+std::string SolveLogic(const GameState& startState) {
+    struct LogicNode {
+        GameState state;
+        std::string fullPath;
+    };
+
+    std::queue<LogicNode> q;
+    std::unordered_set<std::string> visited;
+
+    q.push({startState, ""});
+    visited.insert(GetLogicHash(startState));
+    
+    int iterations = 0;
+
+    while(!q.empty()) {
+        iterations++;
+        LogicNode current = q.front(); q.pop();
+
+        std::cout << "Logic Step " << iterations << " | Path: " << current.fullPath.length() << std::endl;
+
+        // 1. TRY TO WIN (Fast Check: 10k iterations)
+        std::cout << "  > Checking Win..." << std::endl;
+        std::string winPath = SolveOptimized(current.state, -1, -1, 10000);
+        if (!winPath.empty()) {
+            std::cout << "LOGIC SOLVED!" << std::endl;
+            return current.fullPath + winPath;
+        }
+
+        // 2. TRY TO BUILD NEW RULES
+        std::vector<Rule> potentialRules = GetPotentialRules(current.state);
+        
+        for (const auto& r : potentialRules) {
+            // Skip existing rules
+            if ((current.state.propertyMap[TextToElement(r.noun)] & TextToProp(r.prop)) != 0) continue;
+
+            // REACHABILITY PRUNING: Don't try impossible rules
+            if (!IsRuleReachable(current.state, r.noun, r.prop)) continue;
+
+            std::cout << "  > Trying Rule: " << r.noun << " IS " << r.prop << std::endl;
+
+            // Form Rule (Medium Check: 2k iterations)
+            std::string rulePath = SolveOptimized(current.state, r.noun, r.prop, 2000);
+
+            if (!rulePath.empty()) {
+                GameState nextState = current.state;
+                for(char c : rulePath) {
+                    int dx=0, dy=0;
+                    if(c=='U') dy=-1; if(c=='D') dy=1;
+                    if(c=='L') dx=-1; if(c=='R') dx=1;
+                    nextState = MakeMove(nextState, dx, dy);
+                }
+
+                std::string h = GetLogicHash(nextState);
+                if (visited.find(h) == visited.end()) {
+                    visited.insert(h);
+                    q.push({nextState, current.fullPath + rulePath});
+                    std::cout << "    -> Success!" << std::endl;
+                }
+            }
+        }
+    }
+
+    return "No Logic Solution";
 }

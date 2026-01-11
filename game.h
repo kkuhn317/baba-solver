@@ -32,11 +32,21 @@ inline Cell& GetCell(GameState& state, int x, int y) {
 }
 
 // --- FUNCTIONS ---
+
+// Helpers (Added these so Solver can see them)
+int CharToElement(char c);
+bool IsNoun(int e);
+bool IsProperty(int e);
+int TextToElement(int textID);
+PropFlags TextToProp(int textID);
+bool HasProp(GameState& state, int e, PropFlags f);
+
+// Core Engine
 void ParseRules(GameState& state);
 void CheckWin(GameState& state);
-
-// MakeMove returns a new state (for solver)
 GameState MakeMove(const GameState& state, int dx, int dy);
 std::string SerializeState(GameState& s);
 void LoadLevel(int idx, HWND hwnd);
-bool HasProp(GameState& state, int e, PropFlags f);
+
+// Movement (Exposed from movement.cpp)
+bool CanMove(GameState& state, int x, int y, int dx, int dy);
