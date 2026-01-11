@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <functional>
 #include <set>
+#include <map>
 #include <cmath> // Required for abs()
 
 // --- BASIC SOLVER (BFS/DFS) ---
@@ -457,6 +458,46 @@ bool IsRuleReachable(const GameState& s, int noun, int prop) {
     return found[0] && found[1] && found[2];
 }
 
+// --- HIGH LEVEL SOLVER HELPERS ---
+
+struct RuleLoc {
+    int noun, prop;
+    int x1, y1, x2, y2, x3, y3; // Noun, IS, Prop coords
+};
+
+static std::vector<RuleLoc> GetRuleLocations(const GameState& state) {
+    std::vector<RuleLoc> rules;
+    // Horizontal
+    for (int y = 0; y < currentHeight; y++) {
+        for (int x = 0; x < currentWidth - 2; x++) {
+            const Cell& mid = GetCell(const_cast<GameState&>(state), x+1, y);
+            if (mid.objects.empty() || mid.objects[0].element != TEXT_IS) continue;
+            const Cell& left = GetCell(const_cast<GameState&>(state), x, y);
+            const Cell& right = GetCell(const_cast<GameState&>(state), x+2, y);
+            if (!left.objects.empty() && !right.objects.empty()) {
+                if (IsNoun(left.objects[0].element) && IsProperty(right.objects[0].element)) {
+                    rules.push_back({left.objects[0].element, right.objects[0].element, x, y, x+1, y, x+2, y});
+                }
+            }
+        }
+    }
+    // Vertical
+    for (int x = 0; x < currentWidth; x++) {
+        for (int y = 0; y < currentHeight - 2; y++) {
+            const Cell& mid = GetCell(const_cast<GameState&>(state), x, y+1);
+            if (mid.objects.empty() || mid.objects[0].element != TEXT_IS) continue;
+            const Cell& up = GetCell(const_cast<GameState&>(state), x, y);
+            const Cell& down = GetCell(const_cast<GameState&>(state), x, y+2);
+            if (!up.objects.empty() && !down.objects.empty()) {
+                if (IsNoun(up.objects[0].element) && IsProperty(down.objects[0].element)) {
+                    rules.push_back({up.objects[0].element, down.objects[0].element, x, y, x, y+1, x, y+2});
+                }
+            }
+        }
+    }
+    return rules;
+}
+
 static std::string GetElementName(int e) {
     switch(e) {
         case TEXT_BABA: return "BABA";
@@ -471,44 +512,241 @@ static std::string GetElementName(int e) {
     }
 }
 
+static std::string GetRulesString(const GameState& s) {
+    std::string res = "";
+    for(int i=0; i<100; i++) {
+        if(s.propertyMap[i]) res += std::to_string(i) + ":" + std::to_string(s.propertyMap[i]) + "|";
+    }
+    return res;
+}
+
 std::string SolveLogic(const GameState& startState) {
-    struct LogicNode { GameState state; std::string fullPath; };
+    struct LogicNode { 
+        GameState state; 
+        std::string plan; 
+    };
+    
     std::queue<LogicNode> q;
     std::unordered_set<std::string> visited;
 
-    q.push({startState, ""});
-    visited.insert(GetLogicHash(startState));
+    // Initial State
+    GameState initial = startState;
+    ParseRules(initial); // Ensure propertyMap is populated
+    q.push({initial, ""});
+    visited.insert(GetRulesString(initial));
     
     int iterations = 0;
+    std::cout << "--- Starting Logic Solver ---" << std::endl;
+
     while(!q.empty()) {
         iterations++;
+        if (iterations > 5000) {
+            std::cout << "Logic Solver Timeout reached." << std::endl;
+            return "Logic Solver Timeout";
+        }
+
         auto current = q.front(); q.pop();
-        std::cout << "Logic Step " << iterations << " (Path: " << current.fullPath.length() << ")\n";
+        GameState& s = current.state;
 
-        // 1. Try Win (A* makes this fast now!)
-        std::string winPath = SolveOptimized(current.state, -1, -1, 10000);
-        if (!winPath.empty()) return current.fullPath + winPath;
+        if (iterations % 100 == 0 || iterations == 1) {
+            std::cout << "Logic Iteration " << iterations << " | Queue: " << q.size() << " | Plan Length: " << current.plan.length() << std::endl;
+        }
 
-        // 2. Try Rules
-        for (const auto& r : GetPotentialRules(current.state)) {
-            if ((current.state.propertyMap[TextToElement(r.noun)] & TextToProp(r.prop)) != 0) continue;
+        // 1. Check Win (Can YOU reach WIN?)
+        // We use the floodfill from FindPlayerPos logic implicitly
+        auto [px, py] = FindPlayerPos(s);
+        if (px != -1) {
+            // Simple reachability check for WIN
+            std::vector<bool> reach(currentWidth * currentHeight, false);
+            std::queue<std::pair<int, int>> fq;
+            fq.push({px, py});
+            reach[py*currentWidth+px] = true;
             
-            if (!IsRuleReachable(current.state, r.noun, r.prop)) continue;
-
-            std::string rulePath = SolveOptimized(current.state, r.noun, r.prop, 3000);
-            
-            if (!rulePath.empty()) {
-                GameState nextState = current.state;
-                for(char c : rulePath) {
-                    int dx=0, dy=0;
-                    if(c=='U') dy=-1; if(c=='D') dy=1; if(c=='L') dx=-1; if(c=='R') dx=1;
-                    nextState = MakeMove(nextState, dx, dy);
+            int dx[] = {1, -1, 0, 0}; int dy[] = {0, 0, 1, -1};
+            while(!fq.empty()) {
+                auto [cx, cy] = fq.front(); fq.pop();
+                
+                const Cell& c = GetCell(const_cast<GameState&>(s), cx, cy);
+                for(const auto& obj : c.objects) {
+                    if(HasProp(s, obj.element, P_WIN)) {
+                        return current.plan + " -> Reach WIN!";
+                    }
                 }
-                std::string h = GetLogicHash(nextState);
-                if (visited.find(h) == visited.end()) {
+
+                for(int i=0; i<4; i++) {
+                    int nx = cx + dx[i], ny = cy + dy[i];
+                    if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight && !reach[ny*currentWidth+nx]) {
+                        bool blocked = false;
+                        const Cell& nc = GetCell(s, nx, ny);
+                        for (const auto& o : nc.objects) {
+                            if (HasProp(s, o.element, P_STOP) || HasProp(s, o.element, P_PUSH)) blocked = true;
+                        }
+                        if(!blocked) {
+                            reach[ny*currentWidth+nx] = true;
+                            fq.push({nx, ny});
+                        }
+                    }
+                }
+            }
+
+            // Compute Accessibility (Reachable OR Adjacent to Reachable)
+            // This allows us to interact with PUSH objects (like Text) that we can't walk ON but can walk NEXT to.
+            std::vector<bool> accessible = reach;
+            for(int y=0; y<currentHeight; y++) {
+                for(int x=0; x<currentWidth; x++) {
+                    if (reach[y*currentWidth+x]) {
+                        for(int i=0; i<4; i++) {
+                            int nx = x + dx[i], ny = y + dy[i];
+                            if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
+                                accessible[ny*currentWidth+nx] = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Analyze Resources
+            std::map<int, int> inventory;
+            std::vector<Rule> fixedRules;
+            std::vector<RuleLoc> currentLocs = GetRuleLocations(s);
+
+            // Populate Inventory (All accessible text)
+            for(int y=0; y<currentHeight; y++) {
+                for(int x=0; x<currentWidth; x++) {
+                    if (accessible[y*currentWidth+x]) {
+                        const Cell& c = GetCell(s, x, y);
+                        for(const auto& o : c.objects) {
+                            if (o.element >= 10) inventory[o.element]++;
+                        }
+                    }
+                }
+            }
+
+            // Identify Fixed vs Mutable Rules
+            std::vector<Rule> currentlyActive;
+            std::vector<Rule> currentlyBroken;
+
+            for(auto& r : currentLocs) {
+                bool r1 = accessible[r.y1*currentWidth+r.x1];
+                bool r2 = accessible[r.y2*currentWidth+r.x2];
+                bool r3 = accessible[r.y3*currentWidth+r.x3];
+                
+                if (r1 && r2 && r3) {
+                    // It's mutable. Check if it's currently active in the state.
+                    if (s.propertyMap[TextToElement(r.noun)] & TextToProp(r.prop)) {
+                        currentlyActive.push_back({r.noun, r.prop});
+                    } else {
+                        currentlyBroken.push_back({r.noun, r.prop});
+                    }
+                } else {
+                    // It's fixed (unreachable).
+                    fixedRules.push_back({r.noun, r.prop});
+                }
+            }
+
+            if (iterations == 1) {
+                std::cout << "Initial Mutable Rules: " << currentlyActive.size() << std::endl;
+                for(auto& r : currentlyActive) std::cout << " - " << GetElementName(r.noun) << " IS " << GetElementName(r.prop) << std::endl;
+            }
+
+            // Helper to apply rules and push state
+            auto TryPushState = [&](const std::vector<Rule>& newMutableRules, const std::string& stepDesc) {
+                GameState nextState = s;
+                for(int i=0; i<100; i++) nextState.propertyMap[i] = 0;
+                
+                for(auto& r : fixedRules) nextState.propertyMap[TextToElement(r.noun)] |= TextToProp(r.prop);
+                for(auto& r : newMutableRules) nextState.propertyMap[TextToElement(r.noun)] |= TextToProp(r.prop);
+                
+                bool hasYou = false;
+                for (int i = 0; i < 100; i++) if (nextState.propertyMap[i] & P_YOU) hasYou = true;
+                
+                std::string h = GetRulesString(nextState);
+                if (hasYou && visited.find(h) == visited.end()) {
                     visited.insert(h);
-                    q.push({nextState, current.fullPath + rulePath});
-                    std::cout << "  -> Formed " << GetElementName(r.noun) << " IS " << GetElementName(r.prop) << "\n";
+                    q.push({nextState, current.plan + stepDesc});
+                    std::cout << "  [Logic] " << stepDesc.substr(1) << std::endl; // substr(1) to skip newline
+                }
+            };
+
+            // Helper to check inventory
+            auto CheckInventory = [&](const std::vector<Rule>& rules) {
+                std::map<int, int> tempInv = inventory;
+                for(const auto& r : rules) {
+                    if (tempInv[r.noun] > 0 && tempInv[TEXT_IS] > 0 && tempInv[r.prop] > 0) {
+                        tempInv[r.noun]--;
+                        tempInv[TEXT_IS]--;
+                        tempInv[r.prop]--;
+                    } else {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            
+            std::vector<Rule> potentialRules = GetPotentialRules(s); // All possible Noun-Prop pairs
+            
+            // STRATEGY 1: Break Active Rule
+            for(size_t i=0; i<currentlyActive.size(); i++) {
+                std::vector<Rule> nextRules = currentlyActive;
+                nextRules.erase(nextRules.begin() + i);
+                TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop));
+            }
+            
+            // STRATEGY 2: Form New Rule (from Inventory)
+            for(const auto& p : potentialRules) {
+                // Check if p is already active
+                bool active = false;
+                for(const auto& ar : currentlyActive) if(ar.noun == p.noun && ar.prop == p.prop) active = true;
+                if(active) continue;
+
+                std::vector<Rule> nextRules = currentlyActive;
+                nextRules.push_back(p);
+                
+                if(CheckInventory(nextRules)) {
+                    TryPushState(nextRules, "\n -> Form " + GetElementName(p.noun) + " IS " + GetElementName(p.prop));
+                }
+            }
+
+            // STRATEGY 3: Reform Broken Rule (from Grid)
+            for(const auto& r : currentlyBroken) {
+                std::vector<Rule> nextRules = currentlyActive;
+                nextRules.push_back(r);
+                if(CheckInventory(nextRules)) {
+                    TryPushState(nextRules, "\n -> Reform " + GetElementName(r.noun) + " IS " + GetElementName(r.prop));
+                }
+            }
+            
+            // STRATEGY 4: Swap Active -> New
+            for(size_t i=0; i<currentlyActive.size(); i++) {
+                for(const auto& p : potentialRules) {
+                    bool active = false;
+                    for(const auto& ar : currentlyActive) if(ar.noun == p.noun && ar.prop == p.prop) active = true;
+                    if(active) continue;
+                    
+                    if (currentlyActive[i].noun == p.noun && currentlyActive[i].prop == p.prop) continue;
+
+                    std::vector<Rule> nextRules = currentlyActive;
+                    nextRules.erase(nextRules.begin() + i);
+                    nextRules.push_back(p);
+                    
+                    if(CheckInventory(nextRules)) {
+                         TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop) + 
+                                                 ", Form " + GetElementName(p.noun) + " IS " + GetElementName(p.prop));
+                    }
+                }
+            }
+            
+            // STRATEGY 5: Swap Active -> Broken (Reform)
+            for(size_t i=0; i<currentlyActive.size(); i++) {
+                for(const auto& r : currentlyBroken) {
+                    std::vector<Rule> nextRules = currentlyActive;
+                    nextRules.erase(nextRules.begin() + i);
+                    nextRules.push_back(r);
+                    
+                    if(CheckInventory(nextRules)) {
+                        TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop) + 
+                                                ", Reform " + GetElementName(r.noun) + " IS " + GetElementName(r.prop));
+                    }
                 }
             }
         }
