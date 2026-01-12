@@ -15,15 +15,27 @@
 #include "solver.h"
 #include "levels.h"
 
-void DrawRect(HDC hdc, int x, int y, COLORREF color, const char* text = nullptr) {
-    HBRUSH brush = CreateSolidBrush(color);
-    RECT rect = { x * TILE_SIZE, y * TILE_SIZE, (x + 1) * TILE_SIZE, (y + 1) * TILE_SIZE };
-    FillRect(hdc, &rect, brush);
-    DeleteObject(brush);
+void DrawRect(HDC hdc, int x, int y, COLORREF bgColor, const char* text = nullptr, COLORREF textColor = RGB(0,0,0), bool transparent = false) {
+    if (!transparent) {
+        HBRUSH brush = CreateSolidBrush(bgColor);
+        RECT rect = { x * TILE_SIZE, y * TILE_SIZE, (x + 1) * TILE_SIZE, (y + 1) * TILE_SIZE };
+        FillRect(hdc, &rect, brush);
+        DeleteObject(brush);
+    }
     if (text) {
         SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(0, 0, 0));
-        TextOutA(hdc, x * TILE_SIZE + 8, y * TILE_SIZE + 10, text, (int)strlen(text));
+        SetTextColor(hdc, textColor);
+        
+        size_t len = strlen(text);
+        if (len >= 4) {
+            std::string s(text);
+            std::string l1 = s.substr(0, 2);
+            std::string l2 = s.substr(2);
+            TextOutA(hdc, x * TILE_SIZE + 8, y * TILE_SIZE + 2, l1.c_str(), (int)l1.length());
+            TextOutA(hdc, x * TILE_SIZE + 8, y * TILE_SIZE + 18, l2.c_str(), (int)l2.length());
+        } else {
+            TextOutA(hdc, x * TILE_SIZE + 8, y * TILE_SIZE + 10, text, (int)len);
+        }
     }
 }
 
@@ -45,23 +57,30 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             for (int x = 0; x < currentWidth; x++) {
                 if (GetCell(currentState, x, y).objects.empty()) continue;
                 for (auto& obj : GetCell(currentState, x, y).objects) {
-                    COLORREF c = RGB(255,0,255); const char* t = "";
+                    COLORREF bg = RGB(0,0,0); 
+                    COLORREF txt = RGB(0,0,0);
+                    const char* t = nullptr;
+                    bool transparent = false;
+
                     switch(obj.element) {
-                        case WALL: c = C_WALL; break;
-                        case BABA: c = C_BABA; break;
-                        case FLAG: c = C_FLAG; break;
-                        case ROCK: c = C_ROCK; break;
-                        case TEXT_BABA: c = C_TEXT_PINK; t="BABA"; break;
-                        case TEXT_FLAG: c = C_TEXT_PINK; t="FLAG"; break;
-                        case TEXT_WALL: c = C_TEXT_PINK; t="WALL"; break;
-                        case TEXT_ROCK: c = C_TEXT_PINK; t="ROCK"; break;
-                        case TEXT_IS:   c = C_TEXT_WHITE; t="IS"; break;
-                        case TEXT_YOU:  c = C_TEXT_PINK; t="YOU"; break;
-                        case TEXT_WIN:  c = C_TEXT_PINK; t="WIN"; break;
-                        case TEXT_STOP: c = C_TEXT_PINK; t="STOP"; break;
-                        case TEXT_PUSH: c = C_TEXT_PINK; t="PUSH"; break;
+                        case WALL: bg = C_WALL; break;
+                        case BABA: bg = C_BABA; break;
+                        case FLAG: bg = C_FLAG; break;
+                        case ROCK: bg = C_ROCK; break;
+                        case WATER: bg = C_WATER; break;
+                        case TEXT_BABA: t="BABA"; txt = C_TEXT_PINK; transparent = true; break;
+                        case TEXT_FLAG: t="FLAG"; txt = C_FLAG; transparent = true; break;
+                        case TEXT_WALL: t="WALL"; txt = C_WALL; transparent = true; break;
+                        case TEXT_ROCK: t="ROCK"; txt = C_ROCK; transparent = true; break;
+                        case TEXT_WATER: t="WATER"; txt = C_WATER; transparent = true; break;
+                        case TEXT_IS:   t="IS";   txt = C_TEXT_WHITE; transparent = true; break;
+                        case TEXT_YOU:  t="YOU";  bg = C_TEXT_PINK; break;
+                        case TEXT_WIN:  t="WIN";  bg = C_FLAG; break;
+                        case TEXT_STOP: t="STOP"; bg = RGB(0, 200, 0); break;
+                        case TEXT_PUSH: t="PUSH"; bg = C_ROCK; break;
+                        case TEXT_SINK: t="SINK"; bg = C_WATER; break;
                     }
-                    DrawRect(hdc, x, y, c, t);
+                    DrawRect(hdc, x, y, bg, t, txt, transparent);
                 }
             }
         }
@@ -122,6 +141,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 LoadLevel(currentLevelIndex + 1, hwnd);
             } else {
                 DoMove(currentState, dx, dy);
+                ParseRules(currentState);
+                ProcessInteractions(currentState);
                 ParseRules(currentState);
                 CheckWin(currentState);
             }

@@ -43,6 +43,7 @@ bool HasProp(GameState& state, int e, PropFlags f);
 
 // Core Engine
 void ParseRules(GameState& state);
+void ProcessInteractions(GameState& state);
 void CheckWin(GameState& state);
 GameState MakeMove(const GameState& state, int dx, int dy);
 std::string SerializeState(GameState& s);

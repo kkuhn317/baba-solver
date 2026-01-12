@@ -19,27 +19,31 @@ int CharToElement(char c) {
         case 'B': return BABA;
         case 'F': return FLAG;
         case 'R': return ROCK;
+        case 'W': return WATER;
         case 'b': return TEXT_BABA;
         case 'f': return TEXT_FLAG;
         case 'w': return TEXT_WALL;
         case 'r': return TEXT_ROCK;
+        case 'a': return TEXT_WATER;
         case 'i': return TEXT_IS;
         case 'y': return TEXT_YOU;
         case 'n': return TEXT_WIN;
         case 's': return TEXT_STOP;
         case 'p': return TEXT_PUSH;
+        case 'k': return TEXT_SINK;
         default: return EMPTY;
     }
 }
 
 // --- LOGIC HELPERS ---
-bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_WALL); }
-bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_STOP); }
+bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_WATER); }
+bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_SINK); }
 int TextToElement(int textID) {
     if (textID == TEXT_BABA) return BABA;
     if (textID == TEXT_ROCK) return ROCK;
     if (textID == TEXT_FLAG) return FLAG;
     if (textID == TEXT_WALL) return WALL;
+    if (textID == TEXT_WATER) return WATER;
     return 0;
 }
 PropFlags TextToProp(int textID) {
@@ -47,6 +51,7 @@ PropFlags TextToProp(int textID) {
     if (textID == TEXT_PUSH) return P_PUSH;
     if (textID == TEXT_STOP) return P_STOP;
     if (textID == TEXT_WIN) return P_WIN;
+    if (textID == TEXT_SINK) return P_SINK;
     return P_NONE;
 }
 
@@ -101,6 +106,44 @@ bool HasProp(GameState& state, int e, PropFlags f) {
     return (state.propertyMap[e] & f);
 }
 
+// --- INTERACTIONS (SINK, etc.) ---
+void ProcessInteractions(GameState& state) {
+    for(auto& cell : state.grid) {
+        if(cell.objects.size() < 2) continue;
+        
+        bool changed = true;
+        while(changed) {
+            changed = false;
+            int sinkIdx = -1;
+            int targetIdx = -1;
+            
+            for(int i=0; i<cell.objects.size(); i++) {
+                if(HasProp(state, cell.objects[i].element, P_SINK)) {
+                    // Find a target
+                    for(int j=0; j<cell.objects.size(); j++) {
+                        if(i == j) continue;
+                        // Found a pair
+                        sinkIdx = i;
+                        targetIdx = j;
+                        break;
+                    }
+                }
+                if(sinkIdx != -1) break;
+            }
+            
+            if(sinkIdx != -1 && targetIdx != -1) {
+                // Remove larger index first to keep smaller index valid
+                int first = (std::max)(sinkIdx, targetIdx);
+                int second = (std::min)(sinkIdx, targetIdx);
+                
+                cell.objects.erase(cell.objects.begin() + first);
+                cell.objects.erase(cell.objects.begin() + second);
+                changed = true;
+            }
+        }
+    }
+}
+
 // --- WIN CHECK ---
 void CheckWin(GameState& state) {
     state.hasWon = false;
@@ -121,6 +164,8 @@ GameState MakeMove(const GameState& state, int dx, int dy) {
     GameState newState = state;
     DoMove(newState, dx, dy, false);
     ParseRules(newState);
+    ProcessInteractions(newState);
+    ParseRules(newState); // Re-parse rules in case text was destroyed
     CheckWin(newState);
     return newState;
 }

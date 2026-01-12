@@ -8,15 +8,15 @@
 // Use these characters in the 'levels' array below to design your levels:
 //
 // OBJECTS:
-// . = Empty      # = Wall       B = Baba       F = Flag       R = Rock
+// . = Empty      # = Wall       B = Baba       F = Flag       R = Rock       W = Water
 //
 // TEXT (RULES):
-// b = Text BABA  f = Text FLAG  w = Text WALL  r = Text ROCK
-// i = Text IS    y = Text YOU   n = Text WIN   s = Text STOP  p = Text PUSH
+// b = Text BABA  f = Text FLAG  w = Text WALL  r = Text ROCK  a = Text WATER
+// i = Text IS    y = Text YOU   n = Text WIN   s = Text STOP  p = Text PUSH  k = Text SINK
 
 // --- LEVEL DATA ---
 const std::vector<std::vector<std::string>> levels = {
-    // LEVEL 1: Introduction
+    // LEVEL 1: Where Do I Go?
     {
         "....########",
         "....#......#",
@@ -36,20 +36,22 @@ const std::vector<std::vector<std::string>> levels = {
         "....########",
     },
 
-    // LEVEL 2: Pushing Rocks
+    // LEVEL 2: Out of Reach
     {
-        "....................",
-        "......biy...........",
-        "....................",
-        "......B...R...F.....",
-        "....................",
-        "......rip...fin.....",
-        "....................",
-        "....................",
-        "....................",
-        "....................",
-        "....................",
-        "...................."
+        "...########...",
+        "...#......#...",
+        "...#.B..R.#...",
+        "bwa#......#...",
+        "iii#....R.#...",
+        "ysk#......#...",
+        "####WWW#######",
+        "#......#.....#",
+        "#......#.rip.#",
+        "#......#.....#",
+        "#WWW.#.......#",
+        "#WWW...#.fin.#",
+        "#FWW...#.....#",
+        "##############"
     },
 
     // LEVEL 3: Wall Breaker (The text is the key!)
@@ -66,6 +68,21 @@ const std::vector<std::vector<std::string>> levels = {
         "..wis..#.#..........",
         ".......p............",
         "...................."
+    },
+
+    // LEVEL 4: Sinking Feeling
+    {
+        "####################",
+        "#biy.......#...fin.#",
+        "#..........#.......#",
+        "#..B.......#...F...#",
+        "#..........#.......#",
+        "#..R.......W.......#",
+        "#..R.......W.......#",
+        "#..R.......W.......#",
+        "#..........W.......#",
+        "#rip.......W...aik.#",
+        "####################"
     }
 };
 

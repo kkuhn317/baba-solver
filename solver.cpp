@@ -504,10 +504,12 @@ static std::string GetElementName(int e) {
         case TEXT_FLAG: return "FLAG";
         case TEXT_WALL: return "WALL";
         case TEXT_ROCK: return "ROCK";
+        case TEXT_WATER: return "WATER";
         case TEXT_YOU:  return "YOU";
         case TEXT_WIN:  return "WIN";
         case TEXT_STOP: return "STOP";
         case TEXT_PUSH: return "PUSH";
+        case TEXT_SINK: return "SINK";
         default: return std::to_string(e);
     }
 }
