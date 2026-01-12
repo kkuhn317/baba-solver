@@ -1,4 +1,5 @@
 #include "solver.h"
+#include "definitions.h"
 #include "game.h"
 #include <queue>
 #include <unordered_set>
@@ -113,7 +114,7 @@ static std::string GetWalkPath(const GameState& state, int sx, int sy, int ex, i
                     bool blocked = false;
                     const Cell& c = GetCell(const_cast<GameState&>(state), nx, ny);
                     for(const auto& obj : c.objects) {
-                        if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) blocked = true;
+                        if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || HasProp(const_cast<GameState&>(state), obj.element, P_PUSH) || HasProp(const_cast<GameState&>(state), obj.element, P_SINK)) blocked = true;
                     }
                     if(!blocked) {
                         visited[ny * currentWidth + nx] = true;
@@ -162,7 +163,7 @@ static void CanonicalizeState(GameState& state) {
                 bool blocked = false;
                 const Cell& c = GetCell(state, nx, ny);
                 for(const auto& obj : c.objects) {
-                    if(HasProp(state, obj.element, P_STOP) || HasProp(state, obj.element, P_PUSH)) blocked = true;
+                    if(HasProp(state, obj.element, P_STOP) || HasProp(state, obj.element, P_PUSH) || HasProp(state, obj.element, P_SINK)) blocked = true;
                 }
                 if(!blocked) {
                     visited[ny*currentWidth+nx] = true;
@@ -301,7 +302,7 @@ std::string SolveOptimized(const GameState& startState, int targetNoun, int targ
                         bool blocked = false;
                         const Cell& c = GetCell(const_cast<GameState&>(state), nx, ny);
                         for(const auto& obj : c.objects) {
-                            if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) blocked = true;
+                            if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || HasProp(const_cast<GameState&>(state), obj.element, P_PUSH) || HasProp(const_cast<GameState&>(state), obj.element, P_SINK)) blocked = true;
                         }
                         if(!blocked) {
                             reach[ny*currentWidth+nx] = true;
@@ -393,7 +394,7 @@ std::string GetLogicHash(const GameState& s) {
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
             const Cell& c = GetCell(const_cast<GameState&>(s), x, y);
-            for(const auto& o : c.objects) if (o.element >= 10) hash += std::to_string(o.element) + "@" + std::to_string(y*currentWidth+x) + ",";
+            for(const auto& o : c.objects) hash += std::to_string(o.element) + "@" + std::to_string(y*currentWidth+x) + ",";
         }
     }
     return hash;
@@ -419,7 +420,7 @@ bool IsRuleReachable(const GameState& s, int noun, int prop) {
                     bool blocked = false;
                     const Cell& c = GetCell(const_cast<GameState&>(s), nx, ny);
                     for(const auto& o : c.objects) {
-                         if (HasProp(const_cast<GameState&>(s), o.element, P_STOP) || HasProp(const_cast<GameState&>(s), o.element, P_PUSH)) blocked = true;
+                         if (HasProp(const_cast<GameState&>(s), o.element, P_STOP) || HasProp(const_cast<GameState&>(s), o.element, P_PUSH) || HasProp(const_cast<GameState&>(s), o.element, P_SINK)) blocked = true;
                     }
                     if(!blocked) {
                         reachable[ny*currentWidth+nx] = true;
@@ -498,30 +499,6 @@ static std::vector<RuleLoc> GetRuleLocations(const GameState& state) {
     return rules;
 }
 
-static std::string GetElementName(int e) {
-    switch(e) {
-        case TEXT_BABA: return "BABA";
-        case TEXT_FLAG: return "FLAG";
-        case TEXT_WALL: return "WALL";
-        case TEXT_ROCK: return "ROCK";
-        case TEXT_WATER: return "WATER";
-        case TEXT_YOU:  return "YOU";
-        case TEXT_WIN:  return "WIN";
-        case TEXT_STOP: return "STOP";
-        case TEXT_PUSH: return "PUSH";
-        case TEXT_SINK: return "SINK";
-        default: return std::to_string(e);
-    }
-}
-
-static std::string GetRulesString(const GameState& s) {
-    std::string res = "";
-    for(int i=0; i<100; i++) {
-        if(s.propertyMap[i]) res += std::to_string(i) + ":" + std::to_string(s.propertyMap[i]) + "|";
-    }
-    return res;
-}
-
 std::string SolveLogic(const GameState& startState) {
     struct LogicNode { 
         GameState state; 
@@ -535,7 +512,7 @@ std::string SolveLogic(const GameState& startState) {
     GameState initial = startState;
     ParseRules(initial); // Ensure propertyMap is populated
     q.push({initial, ""});
-    visited.insert(GetRulesString(initial));
+    visited.insert(GetLogicHash(initial));
     
     int iterations = 0;
     std::cout << "--- Starting Logic Solver ---" << std::endl;
@@ -581,7 +558,7 @@ std::string SolveLogic(const GameState& startState) {
                         bool blocked = false;
                         const Cell& nc = GetCell(s, nx, ny);
                         for (const auto& o : nc.objects) {
-                            if (HasProp(s, o.element, P_STOP) || HasProp(s, o.element, P_PUSH)) blocked = true;
+                            if (HasProp(s, o.element, P_STOP) || HasProp(s, o.element, P_PUSH) || HasProp(s, o.element, P_SINK)) blocked = true;
                         }
                         if(!blocked) {
                             reach[ny*currentWidth+nx] = true;
@@ -662,7 +639,7 @@ std::string SolveLogic(const GameState& startState) {
                 bool hasYou = false;
                 for (int i = 0; i < 100; i++) if (nextState.propertyMap[i] & P_YOU) hasYou = true;
                 
-                std::string h = GetRulesString(nextState);
+                std::string h = GetLogicHash(nextState);
                 if (hasYou && visited.find(h) == visited.end()) {
                     visited.insert(h);
                     q.push({nextState, current.plan + stepDesc});
@@ -748,6 +725,74 @@ std::string SolveLogic(const GameState& startState) {
                     if(CheckInventory(nextRules)) {
                         TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop) + 
                                                 ", Reform " + GetElementName(r.noun) + " IS " + GetElementName(r.prop));
+                    }
+                }
+            }
+
+            // STRATEGY 6: Neutralize SINK (Push Object into Sink)
+            // 1. Find reachable PUSH objects (Ammo)
+            std::vector<std::pair<int,int>> ammo;
+            for(int y=0; y<currentHeight; y++) {
+                for(int x=0; x<currentWidth; x++) {
+                    if(accessible[y*currentWidth+x]) {
+                        const Cell& c = GetCell(s, x, y);
+                        for(const auto& o : c.objects) {
+                            if(HasProp(s, o.element, P_PUSH)) {
+                                ammo.push_back({x, y});
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Find SINK objects adjacent to Reachable area (Targets)
+            if (!ammo.empty()) {
+                for(int y=0; y<currentHeight; y++) {
+                    for(int x=0; x<currentWidth; x++) {
+                        const Cell& c = GetCell(s, x, y);
+                        bool isSink = false;
+                        int sinkElem = -1;
+                        for(const auto& o : c.objects) {
+                            if(HasProp(s, o.element, P_SINK)) {
+                                isSink = true;
+                                sinkElem = o.element;
+                                break;
+                            }
+                        }
+                        
+                        if(isSink) {
+                            // Check if adjacent to reach (i.e., we can push something INTO it)
+                            bool adj = false;
+                            for(int i=0; i<4; i++) {
+                                int nx = x+dx[i], ny = y+dy[i];
+                                if(nx>=0 && nx<currentWidth && ny>=0 && ny<currentHeight && reach[ny*currentWidth+nx]) {
+                                    adj = true; break;
+                                }
+                            }
+                            
+                            if(adj) {
+                                GameState nextState = s;
+                                // Remove Sink Object
+                                Cell& sinkCell = GetCell(nextState, x, y);
+                                for(auto it=sinkCell.objects.begin(); it!=sinkCell.objects.end(); ) { 
+                                    if(it->element == sinkElem) { it=sinkCell.objects.erase(it); break; } else ++it; 
+                                }
+                                
+                                // Remove Ammo (Take the first one)
+                                std::pair<int,int> a = ammo[0];
+                                Cell& ammoCell = GetCell(nextState, a.first, a.second);
+                                for(auto it=ammoCell.objects.begin(); it!=ammoCell.objects.end(); ) { 
+                                    if(HasProp(nextState, it->element, P_PUSH)) { it=ammoCell.objects.erase(it); break; } else ++it; 
+                                }
+                                
+                                std::string h = GetLogicHash(nextState);
+                                if(visited.find(h) == visited.end()) {
+                                    visited.insert(h);
+                                    q.push({nextState, current.plan + "\n -> Push Object into " + GetElementName(sinkElem)});
+                                    std::cout << "  [Logic] Push Object into " << GetElementName(sinkElem) << std::endl;
+                                }
+                            }
+                        }
                     }
                 }
             }

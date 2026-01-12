@@ -10,6 +10,7 @@
 #include <utility>
 #include <iostream>
 #include "constants.h"
+#include "definitions.h"
 #include "game.h"
 #include "movement.h"
 #include "solver.h"

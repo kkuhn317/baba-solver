@@ -3,6 +3,7 @@
 #include <string>
 #include <windows.h> 
 #include "constants.h"
+#include "definitions.h"
 
 // --- STRUCTS ---
 struct Object { 
@@ -33,12 +34,7 @@ inline Cell& GetCell(GameState& state, int x, int y) {
 
 // --- FUNCTIONS ---
 
-// Helpers (Added these so Solver can see them)
-int CharToElement(char c);
-bool IsNoun(int e);
-bool IsProperty(int e);
-int TextToElement(int textID);
-PropFlags TextToProp(int textID);
+// Helper
 bool HasProp(GameState& state, int e, PropFlags f);
 
 // Core Engine

@@ -1,4 +1,5 @@
 #include "game.h"
+#include "definitions.h"
 #include "movement.h"
 #include "levels.h"
 #include <algorithm>
@@ -11,49 +12,6 @@ std::vector<GameState> undoStack;
 int currentWidth = 20;
 int currentHeight = 12;
 int currentLevelIndex = 0;
-
-// --- MAPPING CHARS TO OBJECTS ---
-int CharToElement(char c) {
-    switch(c) {
-        case '#': return WALL;
-        case 'B': return BABA;
-        case 'F': return FLAG;
-        case 'R': return ROCK;
-        case 'W': return WATER;
-        case 'b': return TEXT_BABA;
-        case 'f': return TEXT_FLAG;
-        case 'w': return TEXT_WALL;
-        case 'r': return TEXT_ROCK;
-        case 'a': return TEXT_WATER;
-        case 'i': return TEXT_IS;
-        case 'y': return TEXT_YOU;
-        case 'n': return TEXT_WIN;
-        case 's': return TEXT_STOP;
-        case 'p': return TEXT_PUSH;
-        case 'k': return TEXT_SINK;
-        default: return EMPTY;
-    }
-}
-
-// --- LOGIC HELPERS ---
-bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_WATER); }
-bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_SINK); }
-int TextToElement(int textID) {
-    if (textID == TEXT_BABA) return BABA;
-    if (textID == TEXT_ROCK) return ROCK;
-    if (textID == TEXT_FLAG) return FLAG;
-    if (textID == TEXT_WALL) return WALL;
-    if (textID == TEXT_WATER) return WATER;
-    return 0;
-}
-PropFlags TextToProp(int textID) {
-    if (textID == TEXT_YOU) return P_YOU;
-    if (textID == TEXT_PUSH) return P_PUSH;
-    if (textID == TEXT_STOP) return P_STOP;
-    if (textID == TEXT_WIN) return P_WIN;
-    if (textID == TEXT_SINK) return P_SINK;
-    return P_NONE;
-}
 
 // --- RULE PARSER ---
 void ParseRules(GameState& state) {
