@@ -72,6 +72,22 @@ void ProcessInteractions(GameState& state) {
         bool changed = true;
         while(changed) {
             changed = false;
+
+            // DEFEAT Logic
+            bool hasDefeat = false;
+            for(const auto& o : cell.objects) {
+                if(HasProp(state, o.element, P_DEFEAT)) { hasDefeat = true; break; }
+            }
+            if(hasDefeat) {
+                for(int i=0; i<cell.objects.size(); ) {
+                    if(HasProp(state, cell.objects[i].element, P_YOU)) {
+                        cell.objects.erase(cell.objects.begin() + i);
+                        changed = true;
+                    } else i++;
+                }
+                if(changed) continue;
+            }
+            
             int sinkIdx = -1;
             int targetIdx = -1;
             

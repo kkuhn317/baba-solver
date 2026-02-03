@@ -5,6 +5,12 @@
 #include "constants.h"
 #include "definitions.h"
 
+// --- NEW DEFINITIONS ---
+#ifndef TEXT_DEFEAT
+#define TEXT_DEFEAT (TEXT_SINK + 1)
+#define C_DEFEAT RGB(139, 0, 0)
+#endif
+
 // --- STRUCTS ---
 struct Object { 
     int element; 

@@ -80,6 +80,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         case TEXT_STOP: t="STOP"; bg = RGB(0, 200, 0); break;
                         case TEXT_PUSH: t="PUSH"; bg = C_ROCK; break;
                         case TEXT_SINK: t="SINK"; bg = C_WATER; break;
+                        case TEXT_DEFEAT: t="DEFEAT"; bg = C_DEFEAT; break;
                     }
                     DrawRect(hdc, x, y, bg, t, txt, transparent);
                 }
@@ -168,6 +169,17 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     FILE* fp;
     freopen_s(&fp, "CONOUT$", "w", stdout);
     freopen_s(&fp, "CONOUT$", "w", stderr);
+
+    std::cout << "--- BABA SOLVER CONTROLS ---" << std::endl;
+    std::cout << "ARROWS : Move" << std::endl;
+    std::cout << "R      : Reset Level" << std::endl;
+    std::cout << "Z      : Undo Move" << std::endl;
+    std::cout << "1-9    : Load Level" << std::endl;
+    std::cout << "----------------------------" << std::endl;
+    std::cout << "S      : Run Basic Solver (BFS)" << std::endl;
+    std::cout << "P      : Run Push-Optimized Solver" << std::endl;
+    std::cout << "L      : Run Logic Solver" << std::endl;
+    std::cout << "----------------------------" << std::endl;
 
     WNDCLASS wc = { 0, WindowProc, 0, 0, hInst, 0, LoadCursor(0, IDC_ARROW), 0, 0, "BabaClass" };
     RegisterClass(&wc);

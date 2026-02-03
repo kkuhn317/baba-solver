@@ -12,6 +12,72 @@
 #include <map>
 #include <cmath> // Required for abs()
 
+// --- HELPERS ---
+
+// Checks if a cell is safe to walk on (not blocked, not a hazard)
+static bool IsWalkable(const GameState& state, int x, int y) {
+    GameState& s = const_cast<GameState&>(state);
+    const Cell& c = GetCell(s, x, y);
+    for(const auto& obj : c.objects) {
+        if(HasProp(s, obj.element, P_STOP) || 
+           HasProp(s, obj.element, P_PUSH) || 
+           HasProp(s, obj.element, P_SINK) || 
+           HasProp(s, obj.element, P_DEFEAT)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Returns a boolean mask of all cells reachable by walking from (sx, sy)
+static std::vector<bool> GetReachableCells(const GameState& state, int sx, int sy) {
+    std::vector<bool> visited(currentWidth * currentHeight, false);
+    if (sx < 0 || sy < 0) return visited;
+
+    std::queue<std::pair<int,int>> q;
+    q.push({sx, sy});
+    visited[sy * currentWidth + sx] = true;
+    
+    int dx[] = {1, -1, 0, 0};
+    int dy[] = {0, 0, 1, -1};
+    
+    while(!q.empty()) {
+        auto [cx, cy] = q.front(); q.pop();
+        
+        for(int i=0; i<4; i++) {
+            int nx = cx + dx[i], ny = cy + dy[i];
+            if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
+                if(!visited[ny * currentWidth + nx] && IsWalkable(state, nx, ny)) {
+                    visited[ny * currentWidth + nx] = true;
+                    q.push({nx, ny});
+                }
+            }
+        }
+    }
+    return visited;
+}
+
+// Returns a boolean mask of cells that are reachable OR adjacent to reachable cells
+static std::vector<bool> GetAccessibleCells(const std::vector<bool>& reachable) {
+    std::vector<bool> accessible = reachable;
+    int dx[] = {1, -1, 0, 0};
+    int dy[] = {0, 0, 1, -1};
+
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            if (reachable[y*currentWidth+x]) {
+                for(int i=0; i<4; i++) {
+                    int nx = x + dx[i], ny = y + dy[i];
+                    if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
+                        accessible[ny*currentWidth+nx] = true;
+                    }
+                }
+            }
+        }
+    }
+    return accessible;
+}
+
 // --- BASIC SOLVER (BFS/DFS) ---
 std::string Solve(const GameState& startState) {
     std::queue<std::tuple<GameState, std::string, int>> q;
@@ -75,7 +141,7 @@ std::string Solve(const GameState& startState) {
     return "No solution found";
 }
 
-// --- OPTIMIZED LOGIC SOLVER ---
+// --- PUSH OPTIMIZED SOLVER ---
 
 // Helper: Find player position (assumes single YOU)
 std::pair<int, int> FindPlayerPos(const GameState& state) {
@@ -111,12 +177,7 @@ static std::string GetWalkPath(const GameState& state, int sx, int sy, int ex, i
             int nx = curr.x + dx[i], ny = curr.y + dy[i];
             if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
                 if(!visited[ny * currentWidth + nx]) {
-                    bool blocked = false;
-                    const Cell& c = GetCell(const_cast<GameState&>(state), nx, ny);
-                    for(const auto& obj : c.objects) {
-                        if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || HasProp(const_cast<GameState&>(state), obj.element, P_PUSH) || HasProp(const_cast<GameState&>(state), obj.element, P_SINK)) blocked = true;
-                    }
-                    if(!blocked) {
+                    if(IsWalkable(state, nx, ny)) {
                         visited[ny * currentWidth + nx] = true;
                         q.push({nx, ny, curr.path + dc[i]});
                     }
@@ -145,34 +206,17 @@ static void CanonicalizeState(GameState& state) {
     int px = p.first; int py = p.second;
     if (px == -1) return;
     
-    std::vector<bool> visited(currentWidth * currentHeight, false);
-    std::queue<std::pair<int,int>> q;
-    q.push({px, py});
-    visited[py * currentWidth + px] = true;
+    auto reachable = GetReachableCells(state, px, py);
     
-    int minX = px, minY = py;
-    int dx[] = {1, -1, 0, 0}; int dy[] = {0, 0, 1, -1};
-    
-    while(!q.empty()) {
-        auto [cx, cy] = q.front(); q.pop();
-        if (cy < minY || (cy == minY && cx < minX)) { minX = cx; minY = cy; }
-        
-        for(int i=0; i<4; i++) {
-            int nx = cx + dx[i], ny = cy + dy[i];
-            if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight && !visited[ny*currentWidth+nx]) {
-                bool blocked = false;
-                const Cell& c = GetCell(state, nx, ny);
-                for(const auto& obj : c.objects) {
-                    if(HasProp(state, obj.element, P_STOP) || HasProp(state, obj.element, P_PUSH) || HasProp(state, obj.element, P_SINK)) blocked = true;
-                }
-                if(!blocked) {
-                    visited[ny*currentWidth+nx] = true;
-                    q.push({nx, ny});
-                }
+    // Find top-left most reachable cell (Row-major scan finds min Y then min X)
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            if(reachable[y*currentWidth+x]) {
+                TeleportPlayer(state, px, py, x, y);
+                return;
             }
         }
     }
-    TeleportPlayer(state, px, py, minX, minY);
 }
 
 int GetHeuristic(const GameState& state, int targetNoun, int targetProp) {
@@ -217,7 +261,7 @@ struct StateNode {
     int pushes;
     int heuristic; // A* Cost
 
-    // Priority Queue sorts by F-Score (g + h)
+    // Priority Queue sorts primarily by Pushes (Cost), using Heuristic as tie-breaker
     bool operator>(const StateNode& other) const {
         // Prioritize Pushes FIRST, then Heuristic (Distance) as tie-breaker.
         if (pushes != other.pushes) return pushes > other.pushes;
@@ -251,7 +295,7 @@ std::string SolveOptimized(const GameState& startState, int targetNoun, int targ
 
         if (current.pushes > maxPushesLogged) {
             maxPushesLogged = current.pushes;
-            std::cout << "Push Depth: " << maxPushesLogged 
+            std::cout << "Pushes: " << maxPushesLogged 
                       << " | Queue: " << pq.size() 
                       << " | Visited: " << visited.size() << std::endl;
         }
@@ -274,47 +318,28 @@ std::string SolveOptimized(const GameState& startState, int targetNoun, int targ
         int px = p.first; int py = p.second;
         if (px == -1) continue;
         
-        // FIND PUSHABLE OBJECTS (BFS)
-        std::vector<bool> reach(currentWidth * currentHeight, false);
-        std::queue<std::pair<int,int>> fq;
-        fq.push({px, py});
-        reach[py*currentWidth+px] = true;
-        std::vector<std::pair<int,int>> reachable;
-        
-        while(!fq.empty()) {
-            auto [cx, cy] = fq.front(); fq.pop();
-            reachable.push_back({cx, cy});
-            
-            // Optimization: If solving for WIN, check if we can WALK to the win
-            if (!solvingForRule) {
-                const Cell& c = GetCell(const_cast<GameState&>(state), cx, cy);
-                for(const auto& obj : c.objects) {
-                    if(HasProp(const_cast<GameState&>(state), obj.element, P_WIN)) {
-                        return path + GetWalkPath(state, px, py, cx, cy);
-                    }
-                }
-            }
-            
-            for(int i=0; i<4; i++) {
-                int nx = cx + dxs[i], ny = cy + dys[i];
-                if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
-                    if(!reach[ny*currentWidth+nx]) {
-                        bool blocked = false;
-                        const Cell& c = GetCell(const_cast<GameState&>(state), nx, ny);
+        auto reachable = GetReachableCells(state, px, py);
+        std::vector<std::pair<int,int>> pushableSources;
+
+        for(int y=0; y<currentHeight; y++) {
+            for(int x=0; x<currentWidth; x++) {
+                if(reachable[y*currentWidth+x]) {
+                    // Check WIN
+                    if (!solvingForRule) {
+                        const Cell& c = GetCell(const_cast<GameState&>(state), x, y);
                         for(const auto& obj : c.objects) {
-                            if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || HasProp(const_cast<GameState&>(state), obj.element, P_PUSH) || HasProp(const_cast<GameState&>(state), obj.element, P_SINK)) blocked = true;
-                        }
-                        if(!blocked) {
-                            reach[ny*currentWidth+nx] = true;
-                            fq.push({nx, ny});
+                            if(HasProp(const_cast<GameState&>(state), obj.element, P_WIN)) {
+                                return path + GetWalkPath(state, px, py, x, y);
+                            }
                         }
                     }
+                    pushableSources.push_back({x, y});
                 }
             }
         }
         
         // GENERATE PUSH MOVES
-        for(auto& pos : reachable) {
+        for(auto& pos : pushableSources) {
             int rx = pos.first; int ry = pos.second;
             for(int i=0; i<4; i++) {
                 int dx = dxs[i], dy = dys[i];
@@ -404,49 +429,15 @@ bool IsRuleReachable(const GameState& s, int noun, int prop) {
     auto [px, py] = FindPlayerPos(s);
     if (px == -1) return false;
 
-    std::vector<bool> reachable(currentWidth * currentHeight, false);
-    std::queue<std::pair<int,int>> q;
-    q.push({px, py});
-    reachable[py*currentWidth+px] = true;
-    
-    int dx[] = {1, -1, 0, 0}; int dy[] = {0, 0, 1, -1};
-    
-    while(!q.empty()) {
-        auto [cx, cy] = q.front(); q.pop();
-        for(int i=0; i<4; i++) {
-            int nx = cx + dx[i], ny = cy + dy[i];
-            if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
-                if(!reachable[ny*currentWidth+nx]) {
-                    bool blocked = false;
-                    const Cell& c = GetCell(const_cast<GameState&>(s), nx, ny);
-                    for(const auto& o : c.objects) {
-                         if (HasProp(const_cast<GameState&>(s), o.element, P_STOP) || HasProp(const_cast<GameState&>(s), o.element, P_PUSH) || HasProp(const_cast<GameState&>(s), o.element, P_SINK)) blocked = true;
-                    }
-                    if(!blocked) {
-                        reachable[ny*currentWidth+nx] = true;
-                        q.push({nx, ny});
-                    }
-                }
-            }
-        }
-    }
+    auto reachable = GetReachableCells(s, px, py);
+    auto accessible = GetAccessibleCells(reachable);
     
     int required[] = {noun, TEXT_IS, prop};
     bool found[3] = {false, false, false};
     
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
-            bool accessible = false;
-            if (reachable[y*currentWidth+x]) accessible = true;
-            else {
-                for(int i=0; i<4; i++) {
-                    int nx = x+dx[i], ny = y+dy[i];
-                    if(nx>=0 && nx<currentWidth && ny>=0 && ny<currentHeight && reachable[ny*currentWidth+nx]) {
-                        accessible = true; break;
-                    }
-                }
-            }
-            if (accessible) {
+            if (accessible[y*currentWidth+x]) {
                 const Cell& c = GetCell(const_cast<GameState&>(s), x, y);
                 for(const auto& o : c.objects) {
                     if (o.element == required[0]) found[0] = true;
@@ -535,34 +526,17 @@ std::string SolveLogic(const GameState& startState) {
         // We use the floodfill from FindPlayerPos logic implicitly
         auto [px, py] = FindPlayerPos(s);
         if (px != -1) {
-            // Simple reachability check for WIN
-            std::vector<bool> reach(currentWidth * currentHeight, false);
-            std::queue<std::pair<int, int>> fq;
-            fq.push({px, py});
-            reach[py*currentWidth+px] = true;
+            auto reachable = GetReachableCells(s, px, py);
             
-            int dx[] = {1, -1, 0, 0}; int dy[] = {0, 0, 1, -1};
-            while(!fq.empty()) {
-                auto [cx, cy] = fq.front(); fq.pop();
-                
-                const Cell& c = GetCell(const_cast<GameState&>(s), cx, cy);
-                for(const auto& obj : c.objects) {
-                    if(HasProp(s, obj.element, P_WIN)) {
-                        return current.plan + " -> Reach WIN!";
-                    }
-                }
-
-                for(int i=0; i<4; i++) {
-                    int nx = cx + dx[i], ny = cy + dy[i];
-                    if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight && !reach[ny*currentWidth+nx]) {
-                        bool blocked = false;
-                        const Cell& nc = GetCell(s, nx, ny);
-                        for (const auto& o : nc.objects) {
-                            if (HasProp(s, o.element, P_STOP) || HasProp(s, o.element, P_PUSH) || HasProp(s, o.element, P_SINK)) blocked = true;
-                        }
-                        if(!blocked) {
-                            reach[ny*currentWidth+nx] = true;
-                            fq.push({nx, ny});
+            // Check WIN
+            for(int y=0; y<currentHeight; y++) {
+                for(int x=0; x<currentWidth; x++) {
+                    if(reachable[y*currentWidth+x]) {
+                        const Cell& c = GetCell(const_cast<GameState&>(s), x, y);
+                        for(const auto& obj : c.objects) {
+                            if(HasProp(s, obj.element, P_WIN)) {
+                                return current.plan + " -> Reach WIN!";
+                            }
                         }
                     }
                 }
@@ -570,19 +544,7 @@ std::string SolveLogic(const GameState& startState) {
 
             // Compute Accessibility (Reachable OR Adjacent to Reachable)
             // This allows us to interact with PUSH objects (like Text) that we can't walk ON but can walk NEXT to.
-            std::vector<bool> accessible = reach;
-            for(int y=0; y<currentHeight; y++) {
-                for(int x=0; x<currentWidth; x++) {
-                    if (reach[y*currentWidth+x]) {
-                        for(int i=0; i<4; i++) {
-                            int nx = x + dx[i], ny = y + dy[i];
-                            if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
-                                accessible[ny*currentWidth+nx] = true;
-                            }
-                        }
-                    }
-                }
-            }
+            auto accessible = GetAccessibleCells(reachable);
 
             // 2. Analyze Resources
             std::map<int, int> inventory;
@@ -747,6 +709,7 @@ std::string SolveLogic(const GameState& startState) {
 
             // 2. Find SINK objects adjacent to Reachable area (Targets)
             if (!ammo.empty()) {
+                int dx[] = {1, -1, 0, 0}; int dy[] = {0, 0, 1, -1};
                 for(int y=0; y<currentHeight; y++) {
                     for(int x=0; x<currentWidth; x++) {
                         const Cell& c = GetCell(s, x, y);
@@ -765,7 +728,7 @@ std::string SolveLogic(const GameState& startState) {
                             bool adj = false;
                             for(int i=0; i<4; i++) {
                                 int nx = x+dx[i], ny = y+dy[i];
-                                if(nx>=0 && nx<currentWidth && ny>=0 && ny<currentHeight && reach[ny*currentWidth+nx]) {
+                                if(nx>=0 && nx<currentWidth && ny>=0 && ny<currentHeight && reachable[ny*currentWidth+nx]) {
                                     adj = true; break;
                                 }
                             }

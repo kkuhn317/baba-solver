@@ -12,7 +12,7 @@ enum Element {
 };
 
 // Properties bitmask
-enum PropFlags { P_NONE = 0, P_YOU = 1, P_PUSH = 2, P_STOP = 4, P_WIN = 8, P_SINK = 16 };
+enum PropFlags { P_NONE = 0, P_YOU = 1, P_PUSH = 2, P_STOP = 4, P_WIN = 8, P_SINK = 16, P_DEFEAT = 32};
 
 // --- HELPER FUNCTIONS ---
 std::string GetElementName(int e);

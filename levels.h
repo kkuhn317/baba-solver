@@ -12,7 +12,7 @@
 //
 // TEXT (RULES):
 // b = Text BABA  f = Text FLAG  w = Text WALL  r = Text ROCK  a = Text WATER
-// i = Text IS    y = Text YOU   n = Text WIN   s = Text STOP  p = Text PUSH  k = Text SINK
+// i = Text IS    y = Text YOU   n = Text WIN   s = Text STOP  p = Text PUSH  k = Text SINK d = Text DEFEAT
 
 // --- LEVEL DATA ---
 const std::vector<std::vector<std::string>> levels = {
@@ -54,20 +54,23 @@ const std::vector<std::vector<std::string>> levels = {
         "##############"
     },
 
-    // LEVEL 3: Wall Breaker (The text is the key!)
+    // LEVEL 3: Off Limits
     {
-        "....................",
-        "....................",
-        ".......#.#..........",
-        "..biy..#.#..fin.....",
-        ".......#.#..........",
-        ".......B.#...F......",
-        ".......#.#..........",
-        ".......#.#..........",
-        ".......#.#..........",
-        "..wis..#.#..........",
-        ".......p............",
-        "...................."
+        "ris.R.......W...........",
+        "....R.....##W#######....",
+        "aid.R.....#.W..#...#....",
+        "....R.....#.W....F.#....",
+        "fin.R.#####.W..#...#....",
+        "....R.#...#.W..#####....",
+        "RRRRR.#.B...W###........",
+        "......#...#.WWWWWWWWWWWW",
+        "......#####....#........",
+        "..........#.wis#........",
+        "..........#....#........",
+        "........b.#....#........",
+        "........i.######........",
+        "........y...............",
+        "........................."
     },
 
     // LEVEL 4: Sinking Feeling

@@ -1,4 +1,5 @@
 #include "definitions.h"
+#include "game.h"
 
 std::string GetElementName(int e) {
     switch(e) {
@@ -18,6 +19,7 @@ std::string GetElementName(int e) {
         case TEXT_STOP: return "STOP";
         case TEXT_PUSH: return "PUSH";
         case TEXT_SINK: return "SINK";
+        case TEXT_DEFEAT: return "DEFEAT";
         default: return std::to_string(e);
     }
 }
@@ -40,12 +42,13 @@ int CharToElement(char c) {
         case 's': return TEXT_STOP;
         case 'p': return TEXT_PUSH;
         case 'k': return TEXT_SINK;
+        case 'd': return TEXT_DEFEAT;
         default: return EMPTY;
     }
 }
 
 bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_WATER); }
-bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_SINK); }
+bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_DEFEAT); }
 
 int TextToElement(int textID) {
     if (textID == TEXT_BABA) return BABA;
@@ -62,5 +65,6 @@ PropFlags TextToProp(int textID) {
     if (textID == TEXT_STOP) return P_STOP;
     if (textID == TEXT_WIN) return P_WIN;
     if (textID == TEXT_SINK) return P_SINK;
+    if (textID == TEXT_DEFEAT) return P_DEFEAT;
     return P_NONE;
 }
