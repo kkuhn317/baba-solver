@@ -128,27 +128,72 @@ LRESULT CALLBACK PaletteProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 void ExportLevel() {
     std::cout << "\n--- EXPORTED LEVEL DATA ---" << std::endl;
-    std::cout << "{" << std::endl;
+    
+    // 1. Build Legend
+    std::map<char, std::string> legend;
+    std::map<int, char> elemToChar;
+    
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            Cell& c = GetCell(currentState, x, y);
+            if(!c.objects.empty()) {
+                int e = c.objects.back().element;
+                if(elemToChar.find(e) == elemToChar.end()) {
+                    char ch = GetDefaultChar(e);
+                    elemToChar[e] = ch;
+                    legend[ch] = GetElementName(e);
+                }
+            }
+        }
+    }
+    
+    std::cout << "{ {";
+    for(auto& kv : legend) std::cout << "{'" << kv.first << "',\"" << kv.second << "\"}, ";
+    std::cout << "},\n{" << std::endl;
+    
     for(int y=0; y<currentHeight; y++) {
         std::cout << "    \"";
         for(int x=0; x<currentWidth; x++) {
             Cell& c = GetCell(currentState, x, y);
             if(c.objects.empty()) std::cout << ".";
-            else std::cout << ElementToChar(c.objects.back().element);
+            else std::cout << elemToChar[c.objects.back().element];
         }
         std::cout << "\"," << std::endl;
     }
-    std::cout << "}" << std::endl;
+    std::cout << "} }" << std::endl;
 }
 
 void SaveLevelToFile(const char* filename) {
     std::ofstream out(filename);
     if (!out) return;
+    
+    // 1. Build Legend
+    std::map<char, std::string> legend;
+    std::map<int, char> elemToChar;
+    
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            Cell& c = GetCell(currentState, x, y);
+            if(!c.objects.empty()) {
+                int e = c.objects.back().element;
+                if(elemToChar.find(e) == elemToChar.end()) {
+                    char ch = GetDefaultChar(e);
+                    elemToChar[e] = ch;
+                    legend[ch] = GetElementName(e);
+                }
+            }
+        }
+    }
+    
+    out << "[LEGEND]\n";
+    for(auto& kv : legend) out << kv.first << "=" << kv.second << "\n";
+    
+    out << "[GRID]\n";
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
             Cell& c = GetCell(currentState, x, y);
             if(c.objects.empty()) out << ".";
-            else out << ElementToChar(c.objects.back().element);
+            else out << elemToChar[c.objects.back().element];
         }
         out << "\n";
     }
@@ -159,16 +204,32 @@ void LoadLevelFromFile(const char* filename, HWND hwnd) {
     std::ifstream in(filename);
     if (!in) return;
     
-    std::vector<std::string> lines;
+    std::vector<std::string> gridLines;
+    std::map<char, int> charToElem;
     std::string line;
+    bool readingGrid = false;
+    
     while(std::getline(in, line)) {
-        if(!line.empty()) lines.push_back(line);
+        if(line.empty()) continue;
+        if(line == "[GRID]") { readingGrid = true; continue; }
+        if(line == "[LEGEND]") { readingGrid = false; continue; }
+        
+        if(!readingGrid) {
+            size_t eq = line.find('=');
+            if(eq != std::string::npos) {
+                char key = line[0];
+                std::string name = line.substr(eq+1);
+                charToElem[key] = ElementFromString(name);
+            }
+        } else {
+            gridLines.push_back(line);
+        }
     }
     in.close();
-    if(lines.empty()) return;
+    if(gridLines.empty()) return;
 
-    currentHeight = (int)lines.size();
-    currentWidth = (int)lines[0].size();
+    currentHeight = (int)gridLines.size();
+    currentWidth = (int)gridLines[0].size();
     currentState.grid.clear();
     currentState.grid.resize(currentWidth * currentHeight);
     currentState.hasWon = false;
@@ -176,8 +237,9 @@ void LoadLevelFromFile(const char* filename, HWND hwnd) {
 
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
-            if (x < (int)lines[y].size()) {
-                int elem = CharToElement(lines[y][x]);
+            if (x < (int)gridLines[y].size()) {
+                char c = gridLines[y][x];
+                int elem = charToElem.count(c) ? charToElem[c] : EMPTY;
                 if (elem != EMPTY) GetCell(currentState, x, y).objects.push_back({elem});
             }
         }

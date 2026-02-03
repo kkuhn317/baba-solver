@@ -16,11 +16,11 @@ enum PropFlags { P_NONE = 0, P_YOU = 1, P_PUSH = 2, P_STOP = 4, P_WIN = 8, P_SIN
 
 // --- HELPER FUNCTIONS ---
 std::string GetElementName(int e);
-int CharToElement(char c);
+int ElementFromString(const std::string& name);
 bool IsNoun(int e);
 bool IsProperty(int e);
 int TextToElement(int textID);
 PropFlags TextToProp(int textID);
-char ElementToChar(int e);
+char GetDefaultChar(int e);
 
 #endif

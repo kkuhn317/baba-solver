@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <string>
+#include <map>
 
 // --- SIMPLE LEVEL MAKER GUIDE ---
 // Use these characters in the 'levels' array below to design your levels:
@@ -15,9 +16,16 @@
 // i = Text IS    y = Text YOU   n = Text WIN   s = Text STOP  p = Text PUSH  k = Text SINK d = Text DEFEAT
 
 // --- LEVEL DATA ---
-const std::vector<std::vector<std::string>> levels = {
+struct LevelDef {
+    std::map<char, std::string> legend;
+    std::vector<std::string> layout;
+};
+
+const std::vector<LevelDef> levels = {
     // LEVEL 1: Where Do I Go?
     {
+        { {'#',"WALL"}, {'B',"BABA"}, {'F',"FLAG"}, {'b',"TEXT_BABA"}, {'w',"TEXT_WALL"}, {'i',"IS"}, {'y',"YOU"}, {'n',"WIN"}, {'f',"TEXT_FLAG"}, {'s',"STOP"} },
+        {
         "....########",
         "....#......#",
         "....#.i....#",
@@ -34,10 +42,13 @@ const std::vector<std::vector<std::string>> levels = {
         ".y..#.s....#",
         "....#......#",
         "....########",
+        }
     },
 
     // LEVEL 2: Out of Reach
     {
+        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"WATER"}, {'b',"TEXT_BABA"}, {'w',"TEXT_WALL"}, {'a',"TEXT_WATER"}, {'i',"IS"}, {'y',"YOU"}, {'s',"STOP"}, {'k',"SINK"}, {'r',"TEXT_ROCK"}, {'p',"PUSH"}, {'n',"WIN"}, {'f',"TEXT_FLAG"}, {'F',"FLAG"} },
+        {
         "...########...",
         "...#......#...",
         "...#.B..R.#...",
@@ -52,10 +63,13 @@ const std::vector<std::vector<std::string>> levels = {
         "#WWW...#.fin.#",
         "#FWW...#.....#",
         "##############"
+        }
     },
 
     // LEVEL 3: Off Limits
     {
+        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"WATER"}, {'F',"FLAG"}, {'r',"TEXT_ROCK"}, {'i',"IS"}, {'s',"STOP"}, {'a',"TEXT_WATER"}, {'d',"DEFEAT"}, {'f',"TEXT_FLAG"}, {'n',"WIN"}, {'w',"TEXT_WALL"}, {'b',"TEXT_BABA"}, {'y',"YOU"} },
+        {
         "ris.R.......W...........",
         "....R.....##W#######....",
         "aid.R.....#.W..#...#....",
@@ -71,10 +85,13 @@ const std::vector<std::vector<std::string>> levels = {
         "........i.######........",
         "........y...............",
         "........................."
+        }
     },
 
     // LEVEL 4: Sinking Feeling
     {
+        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"WATER"}, {'F',"FLAG"}, {'b',"TEXT_BABA"}, {'i',"IS"}, {'y',"YOU"}, {'w',"TEXT_WALL"}, {'s',"STOP"}, {'n',"WIN"}, {'r',"TEXT_ROCK"}, {'p',"PUSH"}, {'a',"TEXT_WATER"}, {'k',"SINK"}, {'f',"TEXT_FLAG"} },
+        {
         "####################",
         "#biywis....#...fin.#",
         "#..........#.......#",
@@ -86,10 +103,13 @@ const std::vector<std::vector<std::string>> levels = {
         "#..........W.......#",
         "#rip.......W...aik.#",
         "####################"
+        }
     },
 
     // LEVEL 4: Sinking Feeling Edit
     {
+        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"WATER"}, {'F',"FLAG"}, {'b',"TEXT_BABA"}, {'i',"IS"}, {'y',"YOU"}, {'w',"TEXT_WALL"}, {'s',"STOP"}, {'n',"WIN"}, {'r',"TEXT_ROCK"}, {'p',"PUSH"}, {'a',"TEXT_WATER"}, {'k',"SINK"}, {'f',"TEXT_FLAG"} },
+        {
         "####################",
         "#biywis#...#...fin.#",
         "#######....#.......#",
@@ -101,6 +121,7 @@ const std::vector<std::vector<std::string>> levels = {
         "#.r.ip.....W.......#",
         "#..........W...aik.#",
         "####################"
+        }
     }
 };
 

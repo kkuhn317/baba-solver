@@ -176,19 +176,25 @@ void LoadLevel(int idx, HWND hwnd) {
     if (idx >= levels.size()) idx = 0;
     currentLevelIndex = idx;
     
-    const auto& mapData = levels[idx];
+    const auto& levelDef = levels[idx];
+    const auto& mapData = levelDef.layout;
+    
     currentHeight = mapData.size();
     currentWidth = currentHeight > 0 ? mapData[0].size() : 0;
     
     currentState.grid.clear();
     currentState.grid.resize(currentWidth * currentHeight);
     
+    // Build local lookup
+    std::map<char, int> charToElem;
+    for(const auto& kv : levelDef.legend) charToElem[kv.first] = ElementFromString(kv.second);
+    
     currentState.hasWon = false;
     undoStack.clear();
 
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
-            int elem = CharToElement(mapData[y][x]);
+            int elem = charToElem.count(mapData[y][x]) ? charToElem[mapData[y][x]] : EMPTY;
             if (elem != EMPTY) {
                 GetCell(currentState, x, y).objects.push_back({elem});
             }

@@ -9,12 +9,12 @@ std::string GetElementName(int e) {
         case ROCK: return "ROCK";
         case WATER: return "WATER";
         case SKULL: return "SKULL";
-        case TEXT_BABA: return "BABA";
-        case TEXT_FLAG: return "FLAG";
-        case TEXT_WALL: return "WALL";
-        case TEXT_ROCK: return "ROCK";
-        case TEXT_WATER: return "WATER";
-        case TEXT_SKULL: return "SKULL";
+        case TEXT_BABA: return "TEXT_BABA";
+        case TEXT_FLAG: return "TEXT_FLAG";
+        case TEXT_WALL: return "TEXT_WALL";
+        case TEXT_ROCK: return "TEXT_ROCK";
+        case TEXT_WATER: return "TEXT_WATER";
+        case TEXT_SKULL: return "TEXT_SKULL";
         case TEXT_IS:   return "IS";
         case TEXT_YOU:  return "YOU";
         case TEXT_WIN:  return "WIN";
@@ -26,29 +26,27 @@ std::string GetElementName(int e) {
     }
 }
 
-int CharToElement(char c) {
-    switch(c) {
-        case '#': return WALL;
-        case 'B': return BABA;
-        case 'F': return FLAG;
-        case 'R': return ROCK;
-        case 'W': return WATER;
-        case 'S': return SKULL;
-        case 'b': return TEXT_BABA;
-        case 'f': return TEXT_FLAG;
-        case 'w': return TEXT_WALL;
-        case 'r': return TEXT_ROCK;
-        case 'a': return TEXT_WATER;
-        case 'u': return TEXT_SKULL;
-        case 'i': return TEXT_IS;
-        case 'y': return TEXT_YOU;
-        case 'n': return TEXT_WIN;
-        case 's': return TEXT_STOP;
-        case 'p': return TEXT_PUSH;
-        case 'k': return TEXT_SINK;
-        case 'd': return TEXT_DEFEAT;
-        default: return EMPTY;
-    }
+int ElementFromString(const std::string& name) {
+    if (name == "WALL") return WALL;
+    if (name == "BABA") return BABA;
+    if (name == "FLAG") return FLAG;
+    if (name == "ROCK") return ROCK;
+    if (name == "WATER") return WATER;
+    if (name == "SKULL") return SKULL;
+    if (name == "TEXT_BABA") return TEXT_BABA;
+    if (name == "TEXT_FLAG") return TEXT_FLAG;
+    if (name == "TEXT_WALL") return TEXT_WALL;
+    if (name == "TEXT_ROCK") return TEXT_ROCK;
+    if (name == "TEXT_WATER") return TEXT_WATER;
+    if (name == "TEXT_SKULL") return TEXT_SKULL;
+    if (name == "IS") return TEXT_IS;
+    if (name == "YOU") return TEXT_YOU;
+    if (name == "WIN") return TEXT_WIN;
+    if (name == "STOP") return TEXT_STOP;
+    if (name == "PUSH") return TEXT_PUSH;
+    if (name == "SINK") return TEXT_SINK;
+    if (name == "DEFEAT") return TEXT_DEFEAT;
+    return EMPTY;
 }
 
 bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_SKULL); }
@@ -74,7 +72,7 @@ PropFlags TextToProp(int textID) {
     return P_NONE;
 }
 
-char ElementToChar(int e) {
+char GetDefaultChar(int e) {
     switch(e) {
         case WALL: return '#';
         case BABA: return 'B';

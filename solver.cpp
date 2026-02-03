@@ -526,6 +526,14 @@ std::string SolveLogic(const GameState& startState) {
     q.push({initial, ""});
     visited.insert(GetLogicHash(initial));
     
+    auto GetSolverName = [](int e) {
+        std::string name = GetElementName(e);
+        if (name.length() > 5 && name.substr(0, 5) == "TEXT_") {
+            return name.substr(5);
+        }
+        return name;
+    };
+
     int iterations = 0;
     std::cout << "--- Starting Logic Solver ---" << std::endl;
 
@@ -608,7 +616,7 @@ std::string SolveLogic(const GameState& startState) {
 
             if (iterations == 1) {
                 std::cout << "Initial Mutable Rules: " << currentlyActive.size() << std::endl;
-                for(auto& r : currentlyActive) std::cout << " - " << GetElementName(r.noun) << " IS " << GetElementName(r.prop) << std::endl;
+                for(auto& r : currentlyActive) std::cout << " - " << GetSolverName(r.noun) << " IS " << GetSolverName(r.prop) << std::endl;
             }
 
             // Helper to apply rules and push state
@@ -651,7 +659,7 @@ std::string SolveLogic(const GameState& startState) {
             for(size_t i=0; i<currentlyActive.size(); i++) {
                 std::vector<Rule> nextRules = currentlyActive;
                 nextRules.erase(nextRules.begin() + i);
-                TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop));
+                TryPushState(nextRules, "\n -> Break " + GetSolverName(currentlyActive[i].noun) + " IS " + GetSolverName(currentlyActive[i].prop));
             }
             
             // STRATEGY 2: Form New Rule (from Inventory)
@@ -665,7 +673,7 @@ std::string SolveLogic(const GameState& startState) {
                 nextRules.push_back(p);
                 
                 if(CheckInventory(nextRules)) {
-                    TryPushState(nextRules, "\n -> Form " + GetElementName(p.noun) + " IS " + GetElementName(p.prop));
+                    TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop));
                 }
             }
 
@@ -674,7 +682,7 @@ std::string SolveLogic(const GameState& startState) {
                 std::vector<Rule> nextRules = currentlyActive;
                 nextRules.push_back(r);
                 if(CheckInventory(nextRules)) {
-                    TryPushState(nextRules, "\n -> Reform " + GetElementName(r.noun) + " IS " + GetElementName(r.prop));
+                    TryPushState(nextRules, "\n -> Reform " + GetSolverName(r.noun) + " IS " + GetSolverName(r.prop));
                 }
             }
             
@@ -692,8 +700,8 @@ std::string SolveLogic(const GameState& startState) {
                     nextRules.push_back(p);
                     
                     if(CheckInventory(nextRules)) {
-                         TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop) + 
-                                                 ", Form " + GetElementName(p.noun) + " IS " + GetElementName(p.prop));
+                         TryPushState(nextRules, "\n -> Break " + GetSolverName(currentlyActive[i].noun) + " IS " + GetSolverName(currentlyActive[i].prop) + 
+                                                 ", Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop));
                     }
                 }
             }
@@ -706,8 +714,8 @@ std::string SolveLogic(const GameState& startState) {
                     nextRules.push_back(r);
                     
                     if(CheckInventory(nextRules)) {
-                        TryPushState(nextRules, "\n -> Break " + GetElementName(currentlyActive[i].noun) + " IS " + GetElementName(currentlyActive[i].prop) + 
-                                                ", Reform " + GetElementName(r.noun) + " IS " + GetElementName(r.prop));
+                        TryPushState(nextRules, "\n -> Break " + GetSolverName(currentlyActive[i].noun) + " IS " + GetSolverName(currentlyActive[i].prop) + 
+                                                ", Reform " + GetSolverName(r.noun) + " IS " + GetSolverName(r.prop));
                     }
                 }
             }
@@ -772,8 +780,8 @@ std::string SolveLogic(const GameState& startState) {
                                 std::string h = GetLogicHash(nextState);
                                 if(visited.find(h) == visited.end()) {
                                     visited.insert(h);
-                                    q.push({nextState, current.plan + "\n -> Push Object into " + GetElementName(sinkElem)});
-                                    std::cout << "  [Logic] Push Object into " << GetElementName(sinkElem) << std::endl;
+                                    q.push({nextState, current.plan + "\n -> Push Object into " + GetSolverName(sinkElem)});
+                                    std::cout << "  [Logic] Push Object into " << GetSolverName(sinkElem) << std::endl;
                                 }
                             }
                         }
