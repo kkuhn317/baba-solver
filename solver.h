@@ -9,7 +9,7 @@
 std::string SerializeState(GameState& s);
 std::string Solve(const GameState& startState);
 
-// The Muscle: Now accepts maxIterations (defaulting to 200k if not specified)
+// The Muscle: Solves by minimizing pushes. Now accepts maxIterations (defaulting to 200k if not specified)
 std::string SolveOptimized(const GameState& startState, int targetRuleNoun = -1, int targetRuleProp = -1, int maxIterations = 200000);
 
 // The Brain
