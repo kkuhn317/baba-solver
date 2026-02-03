@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <tuple>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 
 // --- GLOBALS ---
 GameState currentState;
@@ -17,16 +19,118 @@ int editorPaletteIdx = 0;
 const std::vector<int> editorPalette = {
     WALL, BABA, FLAG, ROCK, WATER, SKULL,
     TEXT_BABA, TEXT_FLAG, TEXT_WALL, TEXT_ROCK, TEXT_WATER, TEXT_SKULL,
-    TEXT_IS, TEXT_YOU, TEXT_WIN, TEXT_STOP, TEXT_PUSH, TEXT_SINK, TEXT_DEFEAT
+    TEXT_IS, TEXT_YOU, TEXT_WIN, TEXT_STOP, TEXT_PUSH, TEXT_SINK, TEXT_DEFEAT, TEXT_HOT, TEXT_MELT
 };
+
+std::vector<LevelDef> levels = {
+    // LEVEL 1: Where Do I Go?
+    {
+        { {'#',"WALL"}, {'B',"BABA"}, {'F',"FLAG"}, {'b',"TEXT_BABA"}, {'w',"TEXT_WALL"}, {'i',"IS"}, {'y',"YOU"}, {'n',"WIN"}, {'f',"TEXT_FLAG"}, {'s',"STOP"} },
+        {
+        "....########",
+        "....#......#",
+        "....#.i....#",
+        "....#......#",
+        "#####....n.#",
+        "#..........#",
+        "#.f...F....#",
+        "#..........#",
+        "#..........#",
+        "############",
+        "....#......#",
+        ".b..#.w....#",
+        ".i..#.i..B.#",
+        ".y..#.s....#",
+        "....#......#",
+        "....########",
+        }
+    },
+
+    // LEVEL 2: Out of Reach
+    {
+        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"WATER"}, {'b',"TEXT_BABA"}, {'w',"TEXT_WALL"}, {'a',"TEXT_WATER"}, {'i',"IS"}, {'y',"YOU"}, {'s',"STOP"}, {'k',"SINK"}, {'r',"TEXT_ROCK"}, {'p',"PUSH"}, {'n',"WIN"}, {'f',"TEXT_FLAG"}, {'F',"FLAG"} },
+        {
+        "...########...",
+        "...#......#...",
+        "...#.B..R.#...",
+        "bwa#......#...",
+        "iii#....R.#...",
+        "ysk#......#...",
+        "####WWW#######",
+        "#......#.....#",
+        "#......#.rip.#",
+        "#......#.....#",
+        "#WWW.#.......#",
+        "#WWW...#.fin.#",
+        "#FWW...#.....#",
+        "##############"
+        }
+    },
+
+    // LEVEL 3: Off Limits
+    {
+        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"SKULL"}, {'F',"FLAG"}, {'r',"TEXT_ROCK"}, {'i',"IS"}, {'s',"STOP"}, {'a',"TEXT_SKULL"}, {'d',"DEFEAT"}, {'f',"TEXT_FLAG"}, {'n',"WIN"}, {'w',"TEXT_WALL"}, {'b',"TEXT_BABA"}, {'y',"YOU"} },
+        {
+        "ris.R.......W...........",
+        "....R.....##W#######....",
+        "aid.R.....#.W..#...#....",
+        "....R.....#.W....F.#....",
+        "fin.R.#####.W..#...#....",
+        "....R.#...#.W..#####....",
+        "RRRRR.#.B...W###........",
+        "......#...#.WWWWWWWWWWWW",
+        "......#####....#........",
+        "..........#.wis#........",
+        "..........#....#........",
+        "........b.#....#........",
+        "........i.######........",
+        "........y...............",
+        "........................."
+        }
+    }
+};
+
+void InitLevels() {
+    namespace fs = std::filesystem;
+    if (fs::exists("levels") && fs::is_directory("levels")) {
+        for (const auto& entry : fs::directory_iterator("levels")) {
+            if (entry.path().extension() == ".txt") {
+                LevelDef def;
+                std::ifstream in(entry.path());
+                if (!in) continue;
+
+                std::string line;
+                bool readingGrid = false;
+                while (std::getline(in, line)) {
+                    if (line.empty()) continue;
+                    if (line.back() == '\r') line.pop_back();
+                    if (line == "[GRID]") { readingGrid = true; continue; }
+                    if (line == "[LEGEND]") { readingGrid = false; continue; }
+
+                    if (!readingGrid) {
+                        size_t eq = line.find('=');
+                        if (eq != std::string::npos) {
+                            def.legend[line[0]] = line.substr(eq + 1);
+                        }
+                    } else {
+                        def.layout.push_back(line);
+                    }
+                }
+                if (!def.layout.empty()) levels.push_back(def);
+            }
+        }
+    }
+}
 
 // --- RULE PARSER ---
 void ParseRules(GameState& state) {
     for (int i = 0; i < 100; i++) state.propertyMap[i] = 0; 
+    state.transformRules.clear();
     
     auto CheckRule = [&](int n, int i, int p) {
-        if (IsNoun(n) && i == TEXT_IS && IsProperty(p)) {
-            state.propertyMap[TextToElement(n)] |= TextToProp(p);
+        if (IsNoun(n) && i == TEXT_IS) {
+            if (IsProperty(p)) state.propertyMap[TextToElement(n)] |= TextToProp(p);
+            else if (IsNoun(p)) state.transformRules.push_back({TextToElement(n), TextToElement(p)});
         }
     };
 
@@ -71,10 +175,41 @@ bool HasProp(GameState& state, int e, PropFlags f) {
     return (state.propertyMap[e] & f);
 }
 
+void ProcessTransformations(GameState& state) {
+    if (state.transformRules.empty()) return;
+
+    for(auto& cell : state.grid) {
+        if(cell.objects.empty()) continue;
+        
+        std::vector<Object> newObjects;
+        bool changed = false;
+        
+        for(const auto& obj : cell.objects) {
+            bool transformed = false;
+            for(const auto& rule : state.transformRules) {
+                if(rule.first == obj.element) {
+                    newObjects.push_back({rule.second});
+                    transformed = true;
+                }
+            }
+            
+            if(transformed) {
+                changed = true;
+            } else {
+                newObjects.push_back(obj);
+            }
+        }
+        
+        if(changed) {
+            cell.objects = newObjects;
+        }
+    }
+}
+
 // --- INTERACTIONS (SINK, etc.) ---
 void ProcessInteractions(GameState& state) {
     for(auto& cell : state.grid) {
-        if(cell.objects.size() < 2) continue;
+        if(cell.objects.empty()) continue;
         
         bool changed = true;
         while(changed) {
@@ -121,6 +256,23 @@ void ProcessInteractions(GameState& state) {
                 cell.objects.erase(cell.objects.begin() + second);
                 changed = true;
             }
+
+            // HOT / MELT Logic
+            bool hasHot = false;
+            for(const auto& o : cell.objects) {
+                if(HasProp(state, o.element, P_HOT)) { hasHot = true; break; }
+            }
+
+            if (hasHot) {
+                for(int i=0; i<cell.objects.size(); ) {
+                    if(HasProp(state, cell.objects[i].element, P_MELT)) {
+                        cell.objects.erase(cell.objects.begin() + i);
+                        changed = true;
+                    } else {
+                        i++;
+                    }
+                }
+            }
         }
     }
 }
@@ -145,6 +297,8 @@ GameState MakeMove(const GameState& state, int dx, int dy) {
     GameState newState = state;
     DoMove(newState, dx, dy, false);
     ParseRules(newState);
+    ProcessTransformations(newState);
+    ParseRules(newState); // Re-parse to update properties for transformed objects
     ProcessInteractions(newState);
     ParseRules(newState); // Re-parse rules in case text was destroyed
     CheckWin(newState);

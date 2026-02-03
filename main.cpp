@@ -18,6 +18,9 @@
 #include "levels.h"
 
 HWND hPaletteWnd = NULL;
+bool showGrid = false;
+int lastEditX = -1;
+int lastEditY = -1;
 
 void DrawRect(HDC hdc, int x, int y, COLORREF bgColor, const char* text = nullptr, COLORREF textColor = RGB(0,0,0), bool transparent = false) {
     if (!transparent) {
@@ -69,6 +72,8 @@ void GetDrawParams(int element, COLORREF& bg, COLORREF& txt, const char*& t, boo
         case TEXT_PUSH: t="PUSH"; bg = C_ROCK; break;
         case TEXT_SINK: t="SINK"; bg = C_WATER; break;
         case TEXT_DEFEAT: t="DEFEAT"; bg = C_DEFEAT; break;
+        case TEXT_HOT: t="HOT"; bg = RGB(255, 140, 0); break;
+        case TEXT_MELT: t="MELT"; bg = RGB(100, 200, 255); break;
     }
 }
 
@@ -280,6 +285,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             }
         }
         
+        if (showGrid) {
+            HPEN pen = CreatePen(PS_SOLID, 1, RGB(80, 80, 80));
+            HGDIOBJ old = SelectObject(hdc, pen);
+            for(int x=0; x<=currentWidth; x++) {
+                MoveToEx(hdc, x*TILE_SIZE, 0, NULL);
+                LineTo(hdc, x*TILE_SIZE, currentHeight*TILE_SIZE);
+            }
+            for(int y=0; y<=currentHeight; y++) {
+                MoveToEx(hdc, 0, y*TILE_SIZE, NULL);
+                LineTo(hdc, currentWidth*TILE_SIZE, y*TILE_SIZE);
+            }
+            SelectObject(hdc, old);
+            DeleteObject(pen);
+        }
+
         if (currentState.hasWon) {
              SetBkMode(hdc, TRANSPARENT);
              SetTextColor(hdc, RGB(0, 255, 0));
@@ -309,14 +329,39 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             int x = LOWORD(lParam) / TILE_SIZE;
             int y = HIWORD(lParam) / TILE_SIZE;
             if (x >= 0 && x < currentWidth && y >= 0 && y < currentHeight) {
+                lastEditX = x;
+                lastEditY = y;
                 Cell& c = GetCell(currentState, x, y);
                 if (uMsg == WM_LBUTTONDOWN) {
+                    c.objects.clear();
                     c.objects.push_back({editorPalette[editorPaletteIdx]});
                 } else {
                     if (!c.objects.empty()) c.objects.pop_back();
                 }
                 ParseRules(currentState); // Update rules immediately
                 InvalidateRect(hwnd, NULL, TRUE);
+            }
+        }
+        return 0;
+    }
+    case WM_MOUSEMOVE: {
+        if (isEditorMode && (wParam & (MK_LBUTTON | MK_RBUTTON))) {
+            int x = LOWORD(lParam) / TILE_SIZE;
+            int y = HIWORD(lParam) / TILE_SIZE;
+            if (x >= 0 && x < currentWidth && y >= 0 && y < currentHeight) {
+                if (x != lastEditX || y != lastEditY) {
+                    lastEditX = x;
+                    lastEditY = y;
+                    Cell& c = GetCell(currentState, x, y);
+                    if (wParam & MK_LBUTTON) {
+                        c.objects.clear();
+                        c.objects.push_back({editorPalette[editorPaletteIdx]});
+                    }
+                    else if (!c.objects.empty()) c.objects.pop_back();
+                    
+                    ParseRules(currentState);
+                    InvalidateRect(hwnd, NULL, TRUE);
+                }
             }
         }
         return 0;
@@ -344,6 +389,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 CheckWin(currentState);
                 InvalidateRect(hwnd, NULL, TRUE);
             }
+            return 0;
+        }
+        if(wParam == 'G') {
+            showGrid = !showGrid;
+            InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
         
@@ -395,6 +445,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 ExportLevel();
                 MessageBoxA(NULL, "Level exported to console.", "Editor", MB_OK);
             }
+            if(wParam == 'C') {
+                if (MessageBoxA(hwnd, "Are you sure you want to clear the level?", "Clear Level", MB_YESNO | MB_ICONWARNING) == IDYES) {
+                    currentState.grid.clear();
+                    currentState.grid.resize(currentWidth * currentHeight);
+                    currentState.hasWon = false;
+                    undoStack.clear();
+                    ParseRules(currentState);
+                    InvalidateRect(hwnd, NULL, TRUE);
+                }
+            }
         } else {
             if(wParam == 'S') {
                 std::string sol = Solve(currentState);
@@ -417,11 +477,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 // If previously won, pressing a key loads next level
                 LoadLevel(currentLevelIndex + 1, hwnd);
             } else {
-                DoMove(currentState, dx, dy);
-                ParseRules(currentState);
-                ProcessInteractions(currentState);
-                ParseRules(currentState);
-                CheckWin(currentState);
+                undoStack.push_back(currentState);
+                currentState = MakeMove(currentState, dx, dy);
             }
             // Update Title
             char buf[64];
@@ -450,6 +507,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     std::cout << "ARROWS : Move" << std::endl;
     std::cout << "R      : Reset Level" << std::endl;
     std::cout << "Z      : Undo Move" << std::endl;
+    std::cout << "G      : Toggle Grid" << std::endl;
     std::cout << "1-9    : Load Level" << std::endl;
     std::cout << "----------------------------" << std::endl;
     std::cout << "S      : Run Basic Solver (BFS)" << std::endl;
@@ -462,10 +520,14 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     std::cout << "R-Click: Remove Tile" << std::endl;
     std::cout << "S/L    : Save/Load Level (in Editor)" << std::endl;
     std::cout << "Ctrl+Arr : Resize Level (in Editor)" << std::endl;
+    std::cout << "C      : Clear Level (in Editor)" << std::endl;
     std::cout << "----------------------------" << std::endl;
 
     WNDCLASS wc = { 0, WindowProc, 0, 0, hInst, 0, LoadCursor(0, IDC_ARROW), 0, 0, "BabaClass" };
     RegisterClass(&wc);
+    
+    InitLevels();
+    
     int initialWidth = 20 * TILE_SIZE + 20;
     int initialHeight = 12 * TILE_SIZE + 40;
     HWND hwnd = CreateWindowEx(0, "BabaClass", "Native Baba", WS_OVERLAPPEDWINDOW, 100, 100, 
@@ -476,7 +538,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     RegisterClass(&wcPal);
     
     hPaletteWnd = CreateWindowEx(WS_EX_TOOLWINDOW, "BabaPalette", "Palette", WS_CAPTION | WS_SYSMENU, 
-        100 + initialWidth + 10, 100, 180, 240, hwnd, 0, hInst, 0);
+        100 + initialWidth + 10, 100, 180, 350, hwnd, 0, hInst, 0);
 
     LoadLevel(0, hwnd);
     ShowWindow(hwnd, nShow);

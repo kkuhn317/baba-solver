@@ -22,6 +22,8 @@ std::string GetElementName(int e) {
         case TEXT_PUSH: return "PUSH";
         case TEXT_SINK: return "SINK";
         case TEXT_DEFEAT: return "DEFEAT";
+        case TEXT_HOT: return "HOT";
+        case TEXT_MELT: return "MELT";
         default: return std::to_string(e);
     }
 }
@@ -46,11 +48,13 @@ int ElementFromString(const std::string& name) {
     if (name == "PUSH") return TEXT_PUSH;
     if (name == "SINK") return TEXT_SINK;
     if (name == "DEFEAT") return TEXT_DEFEAT;
+    if (name == "HOT") return TEXT_HOT;
+    if (name == "MELT") return TEXT_MELT;
     return EMPTY;
 }
 
 bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_SKULL); }
-bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_DEFEAT); }
+bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_MELT); }
 
 int TextToElement(int textID) {
     if (textID == TEXT_BABA) return BABA;
@@ -69,6 +73,8 @@ PropFlags TextToProp(int textID) {
     if (textID == TEXT_WIN) return P_WIN;
     if (textID == TEXT_SINK) return P_SINK;
     if (textID == TEXT_DEFEAT) return P_DEFEAT;
+    if (textID == TEXT_HOT) return P_HOT;
+    if (textID == TEXT_MELT) return P_MELT;
     return P_NONE;
 }
 
@@ -93,6 +99,8 @@ char GetDefaultChar(int e) {
         case TEXT_PUSH: return 'p';
         case TEXT_SINK: return 'k';
         case TEXT_DEFEAT: return 'd';
+        case TEXT_HOT: return 'h';
+        case TEXT_MELT: return 'm';
         default: return '.';
     }
 }

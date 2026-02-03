@@ -2,14 +2,9 @@
 #include <vector>
 #include <string>
 #include <windows.h> 
+#include <utility>
 #include "constants.h"
 #include "definitions.h"
-
-// --- NEW DEFINITIONS ---
-#ifndef TEXT_DEFEAT
-#define TEXT_DEFEAT (TEXT_SINK + 1)
-#define C_DEFEAT RGB(139, 0, 0)
-#endif
 
 // --- STRUCTS ---
 struct Object { 
@@ -25,6 +20,7 @@ struct GameState {
     std::vector<Cell> grid; 
     bool hasWon = false;
     int propertyMap[100] = { 0 };
+    std::vector<std::pair<int, int>> transformRules;
 };
 
 // --- GLOBALS ---
@@ -48,6 +44,7 @@ bool HasProp(GameState& state, int e, PropFlags f);
 
 // Core Engine
 void ParseRules(GameState& state);
+void ProcessTransformations(GameState& state);
 void ProcessInteractions(GameState& state);
 void CheckWin(GameState& state);
 GameState MakeMove(const GameState& state, int dx, int dy);
