@@ -30,13 +30,17 @@ static bool IsWalkable(const GameState& state, int x, int y) {
 }
 
 // Returns a boolean mask of all cells reachable by walking from (sx, sy)
-static std::vector<bool> GetReachableCells(const GameState& state, int sx, int sy) {
+static std::vector<bool> GetReachableCells(const GameState& state, const std::vector<std::pair<int, int>>& starts) {
     std::vector<bool> visited(currentWidth * currentHeight, false);
-    if (sx < 0 || sy < 0) return visited;
-
     std::queue<std::pair<int,int>> q;
-    q.push({sx, sy});
-    visited[sy * currentWidth + sx] = true;
+
+    for(const auto& p : starts) {
+        if (p.first >= 0 && p.second >= 0 && !visited[p.second * currentWidth + p.first]) {
+            visited[p.second * currentWidth + p.first] = true;
+            q.push(p);
+        }
+    }
+    if (q.empty()) return visited;
     
     int dx[] = {1, -1, 0, 0};
     int dy[] = {0, 0, 1, -1};
@@ -156,6 +160,23 @@ std::pair<int, int> FindPlayerPos(const GameState& state) {
     return {-1, -1};
 }
 
+// Helper: Find all player positions
+std::vector<std::pair<int, int>> FindAllPlayerPos(const GameState& state) {
+    std::vector<std::pair<int, int>> players;
+    for(int y=0; y<currentHeight; y++) {
+        for(int x=0; x<currentWidth; x++) {
+            const Cell& c = GetCell(const_cast<GameState&>(state), x, y);
+            for(const auto& obj : c.objects) {
+                if(HasProp(const_cast<GameState&>(state), obj.element, P_YOU)) {
+                    players.push_back({x, y});
+                    break; 
+                }
+            }
+        }
+    }
+    return players;
+}
+
 // Helper: BFS for pathfinding (walking only)
 static std::string GetWalkPath(const GameState& state, int sx, int sy, int ex, int ey) {
     if (sx == ex && sy == ey) return "";
@@ -206,7 +227,7 @@ static void CanonicalizeState(GameState& state) {
     int px = p.first; int py = p.second;
     if (px == -1) return;
     
-    auto reachable = GetReachableCells(state, px, py);
+    auto reachable = GetReachableCells(state, {{px, py}});
     
     // Find top-left most reachable cell (Row-major scan finds min Y then min X)
     for(int y=0; y<currentHeight; y++) {
@@ -318,7 +339,7 @@ std::string SolveOptimized(const GameState& startState, int targetNoun, int targ
         int px = p.first; int py = p.second;
         if (px == -1) continue;
         
-        auto reachable = GetReachableCells(state, px, py);
+        auto reachable = GetReachableCells(state, {{px, py}});
         std::vector<std::pair<int,int>> pushableSources;
 
         for(int y=0; y<currentHeight; y++) {
@@ -426,10 +447,10 @@ std::string GetLogicHash(const GameState& s) {
 }
 
 bool IsRuleReachable(const GameState& s, int noun, int prop) {
-    auto [px, py] = FindPlayerPos(s);
-    if (px == -1) return false;
+    auto players = FindAllPlayerPos(s);
+    if (players.empty()) return false;
 
-    auto reachable = GetReachableCells(s, px, py);
+    auto reachable = GetReachableCells(s, players);
     auto accessible = GetAccessibleCells(reachable);
     
     int required[] = {noun, TEXT_IS, prop};
@@ -524,9 +545,9 @@ std::string SolveLogic(const GameState& startState) {
 
         // 1. Check Win (Can YOU reach WIN?)
         // We use the floodfill from FindPlayerPos logic implicitly
-        auto [px, py] = FindPlayerPos(s);
-        if (px != -1) {
-            auto reachable = GetReachableCells(s, px, py);
+        auto players = FindAllPlayerPos(s);
+        if (!players.empty()) {
+            auto reachable = GetReachableCells(s, players);
             
             // Check WIN
             for(int y=0; y<currentHeight; y++) {
