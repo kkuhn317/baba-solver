@@ -12,6 +12,13 @@ std::vector<GameState> undoStack;
 int currentWidth = 20;
 int currentHeight = 12;
 int currentLevelIndex = 0;
+bool isEditorMode = false;
+int editorPaletteIdx = 0;
+const std::vector<int> editorPalette = {
+    WALL, BABA, FLAG, ROCK, WATER, SKULL,
+    TEXT_BABA, TEXT_FLAG, TEXT_WALL, TEXT_ROCK, TEXT_WATER, TEXT_SKULL,
+    TEXT_IS, TEXT_YOU, TEXT_WIN, TEXT_STOP, TEXT_PUSH, TEXT_SINK, TEXT_DEFEAT
+};
 
 // --- RULE PARSER ---
 void ParseRules(GameState& state) {
@@ -195,4 +202,20 @@ void LoadLevel(int idx, HWND hwnd) {
         int newHeight = currentHeight * 40 + 40;
         SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
     }
+}
+
+void ResizeGrid(int newW, int newH) {
+    if (newW < 1 || newH < 1) return;
+    std::vector<Cell> newGrid(newW * newH);
+    
+    for (int y = 0; y < (std::min)(currentHeight, newH); y++) {
+        for (int x = 0; x < (std::min)(currentWidth, newW); x++) {
+            newGrid[y * newW + x] = currentState.grid[y * currentWidth + x];
+        }
+    }
+    
+    currentState.grid = newGrid;
+    currentWidth = newW;
+    currentHeight = newH;
+    ParseRules(currentState);
 }

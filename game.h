@@ -33,6 +33,9 @@ extern std::vector<GameState> undoStack;
 extern int currentWidth;
 extern int currentHeight;
 extern int currentLevelIndex;
+extern bool isEditorMode;
+extern int editorPaletteIdx;
+extern const std::vector<int> editorPalette;
 
 inline Cell& GetCell(GameState& state, int x, int y) {
     return state.grid[y * currentWidth + x];
@@ -50,6 +53,7 @@ void CheckWin(GameState& state);
 GameState MakeMove(const GameState& state, int dx, int dy);
 std::string SerializeState(GameState& s);
 void LoadLevel(int idx, HWND hwnd);
+void ResizeGrid(int newWidth, int newHeight);
 
 // Movement (Exposed from movement.cpp)
 bool CanMove(GameState& state, int x, int y, int dx, int dy);
