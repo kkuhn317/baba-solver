@@ -1,0 +1,11 @@
+# Ignore C++ build artifacts
+*.exe
+*.obj
+*.o
+*.pdb
+*.ilk
+
+# Ignore build directories (optional but recommended)
+Debug/
+Release/
+x64/
