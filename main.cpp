@@ -372,7 +372,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         if(wParam == VK_RIGHT) dx=1;
         if(wParam == VK_UP) dy=-1;
         if(wParam == VK_DOWN) dy=1;
-        if(wParam == 'R') { LoadLevel(currentLevelIndex, hwnd); InvalidateRect(hwnd, NULL, TRUE); return 0; }
+        if(wParam == 'R' && !isEditorMode) { LoadLevel(currentLevelIndex, hwnd); InvalidateRect(hwnd, NULL, TRUE); return 0; }
         if(wParam >= '1' && wParam <= '9') {
             int level = wParam - '1';
             if (level < levels.size()) {
@@ -467,8 +467,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             if(wParam == 'L') {
-                std::string sol = SolveLogic(currentState);
-                MessageBoxA(NULL, sol.c_str(), "Logic Solution", MB_OK);
+                std::unordered_set<std::string> forbidden;
+                while(true) {
+                    std::string sol = SolveLogic(currentState, forbidden);
+                    if (sol == "No Logic Solution" || sol == "Logic Solver Timeout") {
+                        MessageBoxA(NULL, sol.c_str(), "Logic Solution", MB_OK);
+                        break;
+                    }
+                    if (MessageBoxA(NULL, (sol + "\n\nFind another solution?").c_str(), "Logic Solution", MB_YESNO) == IDYES) {
+                        forbidden.insert(sol);
+                    } else break;
+                }
                 return 0;
             }
             
