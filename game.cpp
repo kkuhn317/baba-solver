@@ -22,103 +22,45 @@ const std::vector<int> editorPalette = {
     TEXT_IS, TEXT_YOU, TEXT_WIN, TEXT_STOP, TEXT_PUSH, TEXT_SINK, TEXT_DEFEAT, TEXT_HOT, TEXT_MELT
 };
 
-std::vector<LevelDef> levels = {
-    // LEVEL 1: Where Do I Go?
-    {
-        { {'#',"WALL"}, {'B',"BABA"}, {'F',"FLAG"}, {'b',"TEXT_BABA"}, {'w',"TEXT_WALL"}, {'i',"IS"}, {'y',"YOU"}, {'n',"WIN"}, {'f',"TEXT_FLAG"}, {'s',"STOP"} },
-        {
-        "....########",
-        "....#......#",
-        "....#.i....#",
-        "....#......#",
-        "#####....n.#",
-        "#..........#",
-        "#.f...F....#",
-        "#..........#",
-        "#..........#",
-        "############",
-        "....#......#",
-        ".b..#.w....#",
-        ".i..#.i..B.#",
-        ".y..#.s....#",
-        "....#......#",
-        "....########",
-        }
-    },
-
-    // LEVEL 2: Out of Reach
-    {
-        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"WATER"}, {'b',"TEXT_BABA"}, {'w',"TEXT_WALL"}, {'a',"TEXT_WATER"}, {'i',"IS"}, {'y',"YOU"}, {'s',"STOP"}, {'k',"SINK"}, {'r',"TEXT_ROCK"}, {'p',"PUSH"}, {'n',"WIN"}, {'f',"TEXT_FLAG"}, {'F',"FLAG"} },
-        {
-        "...########...",
-        "...#......#...",
-        "...#.B..R.#...",
-        "bwa#......#...",
-        "iii#....R.#...",
-        "ysk#......#...",
-        "####WWW#######",
-        "#......#.....#",
-        "#......#.rip.#",
-        "#......#.....#",
-        "#WWW.#.......#",
-        "#WWW...#.fin.#",
-        "#FWW...#.....#",
-        "##############"
-        }
-    },
-
-    // LEVEL 3: Off Limits
-    {
-        { {'#',"WALL"}, {'B',"BABA"}, {'R',"ROCK"}, {'W',"SKULL"}, {'F',"FLAG"}, {'r',"TEXT_ROCK"}, {'i',"IS"}, {'s',"STOP"}, {'a',"TEXT_SKULL"}, {'d',"DEFEAT"}, {'f',"TEXT_FLAG"}, {'n',"WIN"}, {'w',"TEXT_WALL"}, {'b',"TEXT_BABA"}, {'y',"YOU"} },
-        {
-        "ris.R.......W...........",
-        "....R.....##W#######....",
-        "aid.R.....#.W..#...#....",
-        "....R.....#.W....F.#....",
-        "fin.R.#####.W..#...#....",
-        "....R.#...#.W..#####....",
-        "RRRRR.#.B...W###........",
-        "......#...#.WWWWWWWWWWWW",
-        "......#####....#........",
-        "..........#.wis#........",
-        "..........#....#........",
-        "........b.#....#........",
-        "........i.######........",
-        "........y...............",
-        "........................."
-        }
-    }
-};
+std::vector<LevelDef> levels;
 
 void InitLevels() {
     namespace fs = std::filesystem;
+    std::vector<std::string> paths;
+    
     if (fs::exists("levels") && fs::is_directory("levels")) {
         for (const auto& entry : fs::directory_iterator("levels")) {
             if (entry.path().extension() == ".txt") {
-                LevelDef def;
-                std::ifstream in(entry.path());
-                if (!in) continue;
-
-                std::string line;
-                bool readingGrid = false;
-                while (std::getline(in, line)) {
-                    if (line.empty()) continue;
-                    if (line.back() == '\r') line.pop_back();
-                    if (line == "[GRID]") { readingGrid = true; continue; }
-                    if (line == "[LEGEND]") { readingGrid = false; continue; }
-
-                    if (!readingGrid) {
-                        size_t eq = line.find('=');
-                        if (eq != std::string::npos) {
-                            def.legend[line[0]] = line.substr(eq + 1);
-                        }
-                    } else {
-                        def.layout.push_back(line);
-                    }
-                }
-                if (!def.layout.empty()) levels.push_back(def);
+                paths.push_back(entry.path().string());
             }
         }
+    }
+    
+    std::sort(paths.begin(), paths.end());
+
+    for (const auto& path : paths) {
+        LevelDef def;
+        std::ifstream in(path);
+        if (!in) continue;
+
+        std::string line;
+        bool readingGrid = false;
+        while (std::getline(in, line)) {
+            if (line.empty()) continue;
+            if (line.back() == '\r') line.pop_back();
+            if (line == "[GRID]") { readingGrid = true; continue; }
+            if (line == "[LEGEND]") { readingGrid = false; continue; }
+
+            if (!readingGrid) {
+                size_t eq = line.find('=');
+                if (eq != std::string::npos) {
+                    def.legend[line[0]] = line.substr(eq + 1);
+                }
+            } else {
+                def.layout.push_back(line);
+            }
+        }
+        if (!def.layout.empty()) levels.push_back(def);
     }
 }
 
