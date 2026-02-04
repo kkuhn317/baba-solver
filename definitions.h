@@ -2,6 +2,7 @@
 #define DEFINITIONS_H
 
 #include <string>
+#include <windows.h>
 
 // --- ENTITY DEFINITIONS ---
 enum Element {
@@ -14,6 +15,30 @@ enum Element {
 
 // Properties bitmask
 enum PropFlags { P_NONE = 0, P_YOU = 1, P_PUSH = 2, P_STOP = 4, P_WIN = 8, P_SINK = 16, P_DEFEAT = 32, P_HOT = 64, P_MELT = 128 };
+
+enum ElementType {
+    TYPE_NONE,
+    TYPE_OBJECT,
+    TYPE_TEXT_NOUN,
+    TYPE_TEXT_PROP,
+    TYPE_TEXT_OP
+};
+
+struct ElementDef {
+    int id;
+    std::string name;       // Internal name (e.g. "TEXT_BABA")
+    std::string displayText;// Display text (e.g. "BABA")
+    ElementType type;
+    char symbol;            // For level serialization
+    
+    COLORREF color;         // Main color
+    bool textHasBg;         // If true, text uses color as BG and black text. If false, text is color and BG is transparent.
+    
+    int associatedId;       // Object <-> Text ID mapping
+    PropFlags propFlag;     // For properties
+};
+
+const ElementDef& GetElementDef(int e);
 
 // --- HELPER FUNCTIONS ---
 std::string GetElementName(int e);

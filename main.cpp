@@ -34,7 +34,13 @@ void DrawRect(HDC hdc, int x, int y, COLORREF bgColor, const char* text = nullpt
         SetTextColor(hdc, textColor);
         
         size_t len = strlen(text);
-        if (len >= 4) {
+        if (len == 6) {
+            std::string s(text);
+            std::string l1 = s.substr(0, 3);
+            std::string l2 = s.substr(3);
+            TextOutA(hdc, x * TILE_SIZE + 4, y * TILE_SIZE + 2, l1.c_str(), (int)l1.length());
+            TextOutA(hdc, x * TILE_SIZE + 4, y * TILE_SIZE + 18, l2.c_str(), (int)l2.length());
+        } else if (len >= 4) {
             std::string s(text);
             std::string l1 = s.substr(0, 2);
             std::string l2 = s.substr(2);
@@ -47,35 +53,25 @@ void DrawRect(HDC hdc, int x, int y, COLORREF bgColor, const char* text = nullpt
 }
 
 void GetDrawParams(int element, COLORREF& bg, COLORREF& txt, const char*& t, bool& transparent) {
-    bg = RGB(0,0,0); 
-    txt = RGB(0,0,0);
-    t = nullptr;
-    transparent = false;
-
-    switch(element) {
-        case WALL: bg = C_WALL; break;
-        case BABA: bg = C_BABA; break;
-        case FLAG: bg = C_FLAG; break;
-        case ROCK: bg = C_ROCK; break;
-        case WATER: bg = C_WATER; break;
-        case SKULL: bg = C_DEFEAT; break;
-        case LAVA: bg = C_LAVA; break;
-        case TEXT_BABA: t="BABA"; txt = C_TEXT_PINK; transparent = true; break;
-        case TEXT_FLAG: t="FLAG"; txt = C_FLAG; transparent = true; break;
-        case TEXT_WALL: t="WALL"; txt = C_WALL; transparent = true; break;
-        case TEXT_ROCK: t="ROCK"; txt = C_ROCK; transparent = true; break;
-        case TEXT_WATER: t="WATER"; txt = C_WATER; transparent = true; break;
-        case TEXT_SKULL: t="SKULL"; txt = C_DEFEAT; transparent = true; break;
-        case TEXT_LAVA: t="LAVA"; txt = C_LAVA; transparent = true; break;
-        case TEXT_IS:   t="IS";   txt = C_TEXT_WHITE; transparent = true; break;
-        case TEXT_YOU:  t="YOU";  bg = C_TEXT_PINK; break;
-        case TEXT_WIN:  t="WIN";  bg = C_FLAG; break;
-        case TEXT_STOP: t="STOP"; bg = RGB(0, 200, 0); break;
-        case TEXT_PUSH: t="PUSH"; bg = C_ROCK; break;
-        case TEXT_SINK: t="SINK"; bg = C_WATER; break;
-        case TEXT_DEFEAT: t="DEFEAT"; bg = C_DEFEAT; break;
-        case TEXT_HOT: t="HOT"; bg = RGB(255, 140, 0); break;
-        case TEXT_MELT: t="MELT"; bg = RGB(100, 200, 255); break;
+    const ElementDef& def = GetElementDef(element);
+    
+    if (def.type == TYPE_OBJECT) {
+        bg = def.color;
+        txt = RGB(0,0,0);
+        t = nullptr;
+        transparent = false;
+    } else if (def.type != TYPE_NONE) {
+        // Text
+        t = def.displayText.c_str();
+        if (def.textHasBg) {
+            bg = def.color;
+            txt = RGB(0,0,0);
+            transparent = false;
+        } else {
+            bg = RGB(0,0,0);
+            txt = def.color;
+            transparent = true;
+        }
     }
 }
 
