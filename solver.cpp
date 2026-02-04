@@ -1042,8 +1042,6 @@ std::string LogicSolver::NextSolution() {
                 for(const auto& r : currentLocs) {
                     int r_dx = r.x2 - r.x1;
                     int r_dy = r.y2 - r.y1;
-                    int p_dx = r_dy; // Perpendicular
-                    int p_dy = r_dx;
                     
                     auto IsFree = [&](int x, int y) {
                         if (x < 0 || x >= currentWidth || y < 0 || y >= currentHeight) return false;
@@ -1064,85 +1062,103 @@ std::string LogicSolver::NextSolution() {
                         return false;
                     };
 
-                    // 1. Share NOUN
-                    if (r.noun == p.noun) {
-                        // Check for space perpendicular to Noun (r.x1, r.y1)
-                        // Need space for IS and PROP
-                        bool fwd = IsFree(r.x1 + p_dx, r.y1 + p_dy) && IsFree(r.x1 + 2*p_dx, r.y1 + 2*p_dy);
-                        bool bwd = IsFree(r.x1 - p_dx, r.y1 - p_dy) && IsFree(r.x1 - 2*p_dx, r.y1 - 2*p_dy);
-                        
-                        bool canFwd = fwd && CanReach(TEXT_IS, r.x1 + p_dx, r.y1 + p_dy) && CanReach(p.prop, r.x1 + 2*p_dx, r.y1 + 2*p_dy);
-                        bool canBwd = bwd && CanReach(TEXT_IS, r.x1 - p_dx, r.y1 - p_dy) && CanReach(p.prop, r.x1 - 2*p_dx, r.y1 - 2*p_dy);
-
-                        if (canFwd || canBwd) {
-                            std::vector<Rule> nextRules = currentlyActive;
-                            nextRules.push_back(p);
-                            TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Noun)");
-                        }
-                    }
-
-                    // 2. Share PROP
-                    if (r.prop == p.prop) {
-                        // Check for space perpendicular to Prop (r.x3, r.y3)
-                        // Need space for NOUN and IS
-                        // Note: If we build UP from Prop, it's Prop <- IS <- Noun.
-                        // This means Noun is at (y-2), IS at (y-1), Prop at (y).
-                        // This matches the "Backward" check relative to Prop if we consider flow.
-                        // But simpler: just check if 2 spots are free in either direction.
-                        // If we have free spots, we can put Noun and IS there.
-                        // Since we are forming Noun IS Prop, and Prop is fixed:
-                        // If we go (0, -1) (Up): (x, y-1) is IS, (x, y-2) is Noun.
-                        // If we go (0, 1) (Down): (x, y+1) is IS, (x, y+2) is Noun.
-                        
-                        bool fwd = IsFree(r.x3 + p_dx, r.y3 + p_dy) && IsFree(r.x3 + 2*p_dx, r.y3 + 2*p_dy);
-                        bool bwd = IsFree(r.x3 - p_dx, r.y3 - p_dy) && IsFree(r.x3 - 2*p_dx, r.y3 - 2*p_dy);
-
-                        // Check specific reachability if possible
-                        bool canReachFwd = fwd && CanReach(p.noun, r.x3 + 2*p_dx, r.y3 + 2*p_dy) && CanReach(TEXT_IS, r.x3 + p_dx, r.y3 + p_dy);
-                        bool canReachBwd = bwd && CanReach(p.noun, r.x3 - 2*p_dx, r.y3 - 2*p_dy) && CanReach(TEXT_IS, r.x3 - p_dx, r.y3 - p_dy);
-
-                        // Fallback to general inventory if specific check fails (or just use general for now to be safe)
-                        if (canReachFwd || canReachBwd) {
-                            std::vector<Rule> nextRules = currentlyActive;
-                            nextRules.push_back(p);
-                            TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Prop)");
-                        }
-                    }
-
-                    // 3. Share IS
-                    // IS is at (r.x2, r.y2)
-                    // Need space for NOUN and PROP on opposite sides
-                    bool possible = IsFree(r.x2 - p_dx, r.y2 - p_dy) && IsFree(r.x2 + p_dx, r.y2 + p_dy);
+                    // Iterate canonical reading directions: Right (1,0) and Down (0,1)
+                    int dirs[2][2] = {{1, 0}, {0, 1}};
                     
-                    if (possible && CanReach(p.noun, r.x2 - p_dx, r.y2 - p_dy) && CanReach(p.prop, r.x2 + p_dx, r.y2 + p_dy)) {
-                        std::vector<Rule> nextRules = currentlyActive;
-                        nextRules.push_back(p);
-                        TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-IS)");
-                    }
-
-                    // 4. Share Noun as Prop (Target Prop == Existing Noun)
-                    if (r.noun == p.prop) {
-                        // We want p.noun IS p.prop (where p.prop is r.noun).
-                        // Need p.noun IS -> r.noun. Space "before" r.noun.
-                        bool bwd = IsFree(r.x1 - p_dx, r.y1 - p_dy) && IsFree(r.x1 - 2*p_dx, r.y1 - 2*p_dy);
+                    for(int i=0; i<2; i++) {
+                        int dx = dirs[i][0];
+                        int dy = dirs[i][1];
                         
-                        if (bwd && CanReach(p.noun, r.x1 - 2*p_dx, r.y1 - 2*p_dy) && CanReach(TEXT_IS, r.x1 - p_dx, r.y1 - p_dy)) {
-                            std::vector<Rule> nextRules = currentlyActive;
-                            nextRules.push_back(p);
-                            TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Transform-1)");
+                        // Determine relation to existing rule 'r'
+                        // Parallel if direction matches r (or opposite, but we only check positive reading dirs)
+                        bool isParallel = (dx == r_dx && dy == r_dy) || (dx == -r_dx && dy == -r_dy);
+                        bool isPerp = !isParallel;
+
+                        // 1. Share NOUN (r.noun == p.noun)
+                        // New Rule: p.noun IS p.prop. Anchor: p.noun (r.x1, r.y1).
+                        // Must build Forward (Away from anchor).
+                        // Valid if Perpendicular. (Parallel Forward blocked by existing IS).
+                        if (r.noun == p.noun && isPerp) {
+                            int isX = r.x1 + dx, isY = r.y1 + dy;
+                            int prX = r.x1 + 2*dx, prY = r.y1 + 2*dy;
+                            
+                            if (IsFree(isX, isY) && IsFree(prX, prY)) {
+                                if (CanReach(TEXT_IS, isX, isY) && CanReach(p.prop, prX, prY)) {
+                                    std::vector<Rule> nextRules = currentlyActive;
+                                    nextRules.push_back(p);
+                                    TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Noun)");
+                                }
+                            }
                         }
-                    }
 
-                    // 5. Share Prop as Noun (Target Noun == Existing Prop)
-                    if (r.prop == p.noun) {
-                        // We want p.noun IS p.prop (where p.noun is r.prop).
-                        // Need r.prop -> IS p.prop. Space "after" r.prop.
-                        bool fwd = IsFree(r.x3 + p_dx, r.y3 + p_dy) && IsFree(r.x3 + 2*p_dx, r.y3 + 2*p_dy);
-                        
-                        if (fwd && CanReach(TEXT_IS, r.x3 + p_dx, r.y3 + p_dy) && CanReach(p.prop, r.x3 + 2*p_dx, r.y3 + 2*p_dy)) {
-                            std::vector<Rule> nextRules = currentlyActive;
-                            nextRules.push_back(p);
-                            TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Transform-2)");
+                        // 2. Share PROP (r.prop == p.prop)
+                        // New Rule: p.noun IS p.prop. Anchor: p.prop (r.x3, r.y3).
+                        // Must build Backward (Before anchor).
+                        // Valid if Perpendicular. (Parallel Backward blocked by existing IS).
+                        if (r.prop == p.prop && isPerp) {
+                            int isX = r.x3 - dx, isY = r.y3 - dy;
+                            int nX = r.x3 - 2*dx, nY = r.y3 - 2*dy;
+                            
+                            if (IsFree(isX, isY) && IsFree(nX, nY)) {
+                                if (CanReach(TEXT_IS, isX, isY) && CanReach(p.noun, nX, nY)) {
+                                    std::vector<Rule> nextRules = currentlyActive;
+                                    nextRules.push_back(p);
+                                    TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Prop)");
+                                }
+                            }
+                        }
+
+                        // 3. Share IS
+                        // New Rule: p.noun IS p.prop. Anchor: IS (r.x2, r.y2).
+                        // Noun at IS-d, Prop at IS+d.
+                        // Valid if Perpendicular.
+                        if (isPerp) {
+                            int nX = r.x2 - dx, nY = r.y2 - dy;
+                            int prX = r.x2 + dx, prY = r.y2 + dy;
+                            
+                            if (IsFree(nX, nY) && IsFree(prX, prY)) {
+                                if (CanReach(p.noun, nX, nY) && CanReach(p.prop, prX, prY)) {
+                                    std::vector<Rule> nextRules = currentlyActive;
+                                    nextRules.push_back(p);
+                                    TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-IS)");
+                                }
+                            }
+                        }
+
+                        // 4. Share Noun as Prop (r.noun == p.prop)
+                        // New Rule: p.noun IS p.prop (where p.prop is r.noun).
+                        // Anchor: r.noun (r.x1, r.y1).
+                        // Must build Backward (Before anchor).
+                        // Valid if Perpendicular OR Parallel (Chaining: X IS A IS B).
+                        if (r.noun == p.prop) {
+                            int isX = r.x1 - dx, isY = r.y1 - dy;
+                            int nX = r.x1 - 2*dx, nY = r.y1 - 2*dy;
+                            
+                            if (IsFree(isX, isY) && IsFree(nX, nY)) {
+                                if (CanReach(TEXT_IS, isX, isY) && CanReach(p.noun, nX, nY)) {
+                                    std::vector<Rule> nextRules = currentlyActive;
+                                    nextRules.push_back(p);
+                                    TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Chain-Into-Noun)");
+                                }
+                            }
+                        }
+
+                        // 5. Share Prop as Noun (r.prop == p.noun)
+                        // New Rule: p.noun IS p.prop (where p.noun is r.prop).
+                        // Anchor: r.prop (r.x3, r.y3).
+                        // Must build Forward (After anchor).
+                        // Valid if Perpendicular OR Parallel (Chaining: A IS B IS C).
+                        if (r.prop == p.noun) {
+                            int isX = r.x3 + dx, isY = r.y3 + dy;
+                            int prX = r.x3 + 2*dx, prY = r.y3 + 2*dy;
+                            
+                            if (IsFree(isX, isY) && IsFree(prX, prY)) {
+                                if (CanReach(TEXT_IS, isX, isY) && CanReach(p.prop, prX, prY)) {
+                                    std::vector<Rule> nextRules = currentlyActive;
+                                    nextRules.push_back(p);
+                                    TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Chain-From-Prop)");
+                                }
+                            }
                         }
                     }
                 }
@@ -1168,72 +1184,93 @@ std::string LogicSolver::NextSolution() {
                 }
             }
 
-            // STRATEGY 5: Neutralize SINK (Push Object into Sink)
+            // STRATEGY 5: Neutralize SINK or HAZARD
             // 1. Find reachable PUSH objects (Ammo)
-            std::vector<std::pair<int,int>> ammo;
+            struct AmmoInfo { int x, y; int elem; bool isSink; };
+            std::vector<AmmoInfo> ammoList;
+            
             for(int y=0; y<currentHeight; y++) {
                 for(int x=0; x<currentWidth; x++) {
                     if(accessible[y*currentWidth+x]) {
                         const Cell& c = GetCell(s, x, y);
                         for(const auto& o : c.objects) {
                             if(HasProp(s, o.element, P_PUSH)) {
-                                ammo.push_back({x, y});
+                                bool isSink = HasProp(s, o.element, P_SINK);
+                                ammoList.push_back({x, y, o.element, isSink});
                             }
                         }
                     }
                 }
             }
 
-            // 2. Find SINK objects adjacent to Reachable area (Targets)
-            if (!ammo.empty()) {
-                int dx[] = {1, -1, 0, 0}; int dy[] = {0, 0, 1, -1};
+            bool playerIsMelt = false;
+            for(int i=0; i<100; i++) if((s.propertyMap[i] & P_YOU) && (s.propertyMap[i] & P_MELT)) playerIsMelt = true;
+
+            // 2. Find Targets (Sink or Hazard)
+            if (!ammoList.empty()) {
+                std::vector<std::vector<bool>> ammoReach(ammoList.size());
+
                 for(int y=0; y<currentHeight; y++) {
                     for(int x=0; x<currentWidth; x++) {
                         const Cell& c = GetCell(s, x, y);
-                        bool isSink = false;
-                        int sinkElem = -1;
+                        
+                        bool isSinkTarget = false;
+                        bool isHazardTarget = false;
+                        int targetElem = -1;
+
                         for(const auto& o : c.objects) {
                             if(HasProp(s, o.element, P_SINK)) {
-                                isSink = true;
-                                sinkElem = o.element;
+                                isSinkTarget = true;
+                                targetElem = o.element;
+                                break;
+                            }
+                            if(HasProp(s, o.element, P_DEFEAT)) {
+                                isHazardTarget = true;
+                                targetElem = o.element;
+                                break;
+                            }
+                            if(playerIsMelt && HasProp(s, o.element, P_HOT)) {
+                                isHazardTarget = true;
+                                targetElem = o.element;
                                 break;
                             }
                         }
                         
-                        if(isSink) {
-                            // Check if any ammo can reach the sink
-                            bool canReachSink = false;
-                            int ammoIdx = -1;
-                            for(int k=0; k<ammo.size(); k++) {
-                                auto mask = GetPushableReach(s, ammo[k].first, ammo[k].second);
-                                if (mask[y * currentWidth + x]) {
-                                    canReachSink = true;
-                                    ammoIdx = k;
+                        if(isSinkTarget || isHazardTarget) {
+                            int bestAmmoIdx = -1;
+                            for(int k=0; k<ammoList.size(); k++) {
+                                if (ammoList[k].x == x && ammoList[k].y == y) continue; // Don't push into self
+                                if (isHazardTarget && !ammoList[k].isSink) continue; // Hazards require Sink Ammo
+                                
+                                if (ammoReach[k].empty()) ammoReach[k] = GetPushableReach(s, ammoList[k].x, ammoList[k].y);
+                                
+                                if (ammoReach[k][y * currentWidth + x]) {
+                                    bestAmmoIdx = k;
                                     break;
                                 }
                             }
                             
-                            if(canReachSink) {
+                            if(bestAmmoIdx != -1) {
                                 GameState nextState = s;
-                                // Remove Sink Object
-                                Cell& sinkCell = GetCell(nextState, x, y);
-                                for(auto it=sinkCell.objects.begin(); it!=sinkCell.objects.end(); ) { 
-                                    if(it->element == sinkElem) { it=sinkCell.objects.erase(it); break; } else ++it; 
+                                // Remove Target
+                                Cell& targetCell = GetCell(nextState, x, y);
+                                for(auto it=targetCell.objects.begin(); it!=targetCell.objects.end(); ) { 
+                                    if(it->element == targetElem) { it=targetCell.objects.erase(it); break; } else ++it; 
                                 }
                                 
-                                // Remove Ammo (Take the first one)
-                                std::pair<int,int> a = ammo[ammoIdx];
-                                Cell& ammoCell = GetCell(nextState, a.first, a.second);
-                                int pushedElem = -1;
+                                // Remove Ammo
+                                const auto& a = ammoList[bestAmmoIdx];
+                                Cell& ammoCell = GetCell(nextState, a.x, a.y);
                                 for(auto it=ammoCell.objects.begin(); it!=ammoCell.objects.end(); ) { 
-                                    if(HasProp(nextState, it->element, P_PUSH)) { pushedElem = it->element; it=ammoCell.objects.erase(it); break; } else ++it; 
+                                    if(it->element == a.elem) { it=ammoCell.objects.erase(it); break; } else ++it; 
                                 }
                                 
                                 std::string h = GetLogicHash(nextState);
                                 if(visited.find(h) == visited.end()) {
                                     visited.insert(h);
-                                    q.push({nextState, current.plan + "\n -> Push " + GetElementName(pushedElem) + " into " + GetElementName(sinkElem)});
-                                    std::cout << "  [Logic] Push " << GetElementName(pushedElem) << " into " << GetElementName(sinkElem) << std::endl;
+                                    std::string action = isSinkTarget ? " into " : " to neutralize ";
+                                    q.push({nextState, current.plan + "\n -> Push " + GetElementName(a.elem) + action + GetElementName(targetElem)});
+                                    std::cout << "  [Logic] Push " << GetElementName(a.elem) << action << GetElementName(targetElem) << std::endl;
                                 }
                             }
                         }
