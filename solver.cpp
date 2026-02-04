@@ -416,6 +416,181 @@ std::string SolveOptimized(const GameState& startState, int targetNoun, int targ
     return "";
 }
 
+// --- REACHABILITY HELPERS ---
+
+// Returns a boolean mask of cells where the block at (bx, by) can be pushed to.
+static std::vector<bool> GetPushableReach(const GameState& state, int bx, int by) {
+    std::vector<bool> result(currentWidth * currentHeight, false);
+    
+    // 1. Check if object is pushable
+    bool isPush = false;
+    const Cell& c = GetCell(const_cast<GameState&>(state), bx, by);
+    for(const auto& o : c.objects) if(HasProp(const_cast<GameState&>(state), o.element, P_PUSH)) isPush = true;
+    if(!isPush) return result;
+
+    // 2. Find Players
+    auto players = FindAllPlayerPos(state);
+    if(players.empty()) return result;
+
+    // 3. BFS
+    // State: BoxPos (int), CanonicalPlayerPos (int)
+    std::set<std::pair<int, int>> visited;
+    struct Node { int bx, by; int px, py; };
+    std::queue<Node> q;
+
+    // Initial Reachability
+    std::vector<bool> initialReachable = GetReachableCells(state, players);
+    
+    // Find canonical player pos (first reachable cell)
+    int initialCanP = -1;
+    for(int i=0; i<currentWidth*currentHeight; i++) {
+        if(initialReachable[i]) { initialCanP = i; break; }
+    }
+    if(initialCanP == -1) return result; 
+    
+    result[by * currentWidth + bx] = true;
+    
+    int pX = initialCanP % currentWidth;
+    int pY = initialCanP / currentWidth;
+    
+    q.push({bx, by, pX, pY});
+    visited.insert({by * currentWidth + bx, initialCanP});
+
+    int dx[] = {1, -1, 0, 0};
+    int dy[] = {0, 0, 1, -1};
+    
+    bool isMelt = false;
+    for(int i=0; i<100; i++) if ((state.propertyMap[i] & P_YOU) && (state.propertyMap[i] & P_MELT)) isMelt = true;
+
+    while(!q.empty()) {
+        Node curr = q.front(); q.pop();
+        
+        // Compute reachable area for player with box at curr.bx, curr.by
+        std::vector<bool> pReachable(currentWidth * currentHeight, false);
+        std::queue<std::pair<int,int>> pq;
+        
+        if (curr.px >= 0 && curr.px < currentWidth && curr.py >= 0 && curr.py < currentHeight) {
+            pq.push({curr.px, curr.py});
+            pReachable[curr.py * currentWidth + curr.px] = true;
+        }
+        
+        while(!pq.empty()) {
+            auto [cx, cy] = pq.front(); pq.pop();
+            for(int i=0; i<4; i++) {
+                int nx = cx + dx[i], ny = cy + dy[i];
+                if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
+                    if(!pReachable[ny * currentWidth + nx]) {
+                        if(nx == curr.bx && ny == curr.by) continue; // Blocked by current box
+                        
+                        bool walkable = true;
+                        if (nx == bx && ny == by) {
+                            // Original box position: check if OTHER objects block
+                            const Cell& cell = GetCell(const_cast<GameState&>(state), nx, ny);
+                            for(const auto& obj : cell.objects) {
+                                if(HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) continue; 
+                                if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || 
+                                   HasProp(const_cast<GameState&>(state), obj.element, P_SINK) || 
+                                   HasProp(const_cast<GameState&>(state), obj.element, P_DEFEAT)) {
+                                    walkable = false; break;
+                                }
+                                if (isMelt && HasProp(const_cast<GameState&>(state), obj.element, P_HOT)) { walkable = false; break; }
+                            }
+                        } else {
+                            walkable = IsWalkable(state, nx, ny, isMelt);
+                        }
+                        
+                        if(walkable) {
+                            pReachable[ny * currentWidth + nx] = true;
+                            pq.push({nx, ny});
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Try Pushing
+        for(int i=0; i<4; i++) {
+            int pushX = curr.bx - dx[i];
+            int pushY = curr.by - dy[i];
+            
+            if(pushX >= 0 && pushX < currentWidth && pushY >= 0 && pushY < currentHeight && pReachable[pushY * currentWidth + pushX]) {
+                int destX = curr.bx + dx[i];
+                int destY = curr.by + dy[i];
+                
+                if(destX >= 0 && destX < currentWidth && destY >= 0 && destY < currentHeight) {
+                    bool destValid = true;
+                    bool isSink = false;
+                    
+                    const Cell& destCell = GetCell(const_cast<GameState&>(state), destX, destY);
+                    for(const auto& obj : destCell.objects) {
+                        if (destX == bx && destY == by) {
+                            if(HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) continue;
+                        }
+                        if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP)) { destValid = false; break; }
+                        if(HasProp(const_cast<GameState&>(state), obj.element, P_SINK)) { isSink = true; }
+                    }
+                    
+                    if(destValid) {
+                        if (isSink) {
+                            result[destY * currentWidth + destX] = true;
+                        } else {
+                            // Calculate canonical player pos for new state
+                            int minIdx = 100000;
+                            std::queue<std::pair<int,int>> cpq;
+                            std::vector<bool> cVis(currentWidth * currentHeight, false);
+                            cpq.push({curr.bx, curr.by}); // Player moves to where box was
+                            cVis[curr.by * currentWidth + curr.bx] = true;
+                            
+                            while(!cpq.empty()) {
+                                auto [cx, cy] = cpq.front(); cpq.pop();
+                                int idx = cy * currentWidth + cx;
+                                if (idx < minIdx) minIdx = idx;
+                                
+                                for(int k=0; k<4; k++) {
+                                    int nx = cx + dx[k], ny = cy + dy[k];
+                                    if(nx >= 0 && nx < currentWidth && ny >= 0 && ny < currentHeight) {
+                                        if(!cVis[ny*currentWidth+nx]) {
+                                            if(nx == destX && ny == destY) continue;
+                                            
+                                            bool w = true;
+                                            if(nx == bx && ny == by) {
+                                                 const Cell& cell = GetCell(const_cast<GameState&>(state), nx, ny);
+                                                 for(const auto& obj : cell.objects) {
+                                                     if(HasProp(const_cast<GameState&>(state), obj.element, P_PUSH)) continue;
+                                                     if(HasProp(const_cast<GameState&>(state), obj.element, P_STOP) || 
+                                                        HasProp(const_cast<GameState&>(state), obj.element, P_SINK) || 
+                                                        HasProp(const_cast<GameState&>(state), obj.element, P_DEFEAT)) {
+                                                         w = false; break;
+                                                     }
+                                                     if (isMelt && HasProp(const_cast<GameState&>(state), obj.element, P_HOT)) { w = false; break; }
+                                                 }
+                                            } else {
+                                                w = IsWalkable(state, nx, ny, isMelt);
+                                            }
+                                            
+                                            if(w) {
+                                                cVis[ny*currentWidth+nx] = true;
+                                                cpq.push({nx, ny});
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if(visited.find({destY * currentWidth + destX, minIdx}) == visited.end()) {
+                                visited.insert({destY * currentWidth + destX, minIdx});
+                                result[destY * currentWidth + destX] = true;
+                                q.push({destX, destY, curr.bx, curr.by});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return result;
+}
+
 // --- LOGIC SOLVER ---
 struct Rule {
     int noun;
@@ -538,45 +713,57 @@ static std::vector<RuleLoc> GetRuleLocations(const GameState& state) {
     return rules;
 }
 
-std::string SolveLogic(const GameState& startState, const std::unordered_set<std::string>& forbidden) {
-    struct LogicNode { 
-        GameState state; 
-        std::string plan; 
-        bool padding = false;
-    };
-    
-    std::queue<LogicNode> q;
-    std::unordered_set<std::string> visited;
-
-    // Initial State
+LogicSolver::LogicSolver(const GameState& startState) {
     GameState initial = startState;
     ParseRules(initial); // Ensure propertyMap is populated
     q.push({initial, ""});
     visited.insert(GetLogicHash(initial));
+}
+
+std::vector<std::string> LogicSolver::ParsePlan(const std::string& plan) {
+    std::vector<std::string> steps;
+    std::string delim = "\n -> ";
+    size_t start = 0;
+    size_t end = plan.find(delim);
     
+    // If plan starts with delim, skip the first empty part
+    if (end == 0) {
+        start = delim.length();
+        end = plan.find(delim, start);
+    }
+
+    while (end != std::string::npos) {
+        steps.push_back(plan.substr(start, end - start));
+        start = end + delim.length();
+        end = plan.find(delim, start);
+    }
+    if (start < plan.length()) {
+        steps.push_back(plan.substr(start));
+    }
+    return steps;
+}
+
+bool LogicSolver::IsRedundant(const std::vector<std::string>& currentSteps) {
+    for (const auto& oldSteps : foundPlans) {
+        if (oldSteps.size() > currentSteps.size()) continue;
+        
+        size_t i = 0, j = 0;
+        while (i < oldSteps.size() && j < currentSteps.size()) {
+            if (oldSteps[i] == currentSteps[j]) i++;
+            j++;
+        }
+        if (i == oldSteps.size()) return true;
+    }
+    return false;
+}
+
+std::string LogicSolver::NextSolution() {
     auto GetSolverName = [](int e) {
         std::string name = GetElementName(e);
         if (name.length() > 5 && name.substr(0, 5) == "TEXT_") {
             return name.substr(5);
         }
         return name;
-    };
-
-    auto GetSteps = [](const std::string& plan) {
-        std::vector<std::string> steps;
-        size_t pos = 0;
-        while ((pos = plan.find("->", pos)) != std::string::npos) {
-            pos += 2;
-            size_t end = plan.find("->", pos);
-            std::string step = plan.substr(pos, end - pos);
-            size_t first = step.find_first_not_of(" \n\r\t");
-            if (first != std::string::npos) {
-                size_t last = step.find_last_not_of(" \n\r\t");
-                steps.push_back(step.substr(first, last - first + 1));
-            }
-            if (end == std::string::npos) break;
-        }
-        return steps;
     };
 
     int iterations = 0;
@@ -614,24 +801,11 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                                 if (!current.padding) {
                                     std::string sol = current.plan + "\n -> Reach " + GetElementName(obj.element);
                                     
-                                    bool isRedundant = false;
-                                    if (forbidden.find(sol) != forbidden.end()) {
-                                        isRedundant = true;
-                                    } else {
-                                        std::vector<std::string> currSteps = GetSteps(sol);
-                                        for (const auto& bad : forbidden) {
-                                            std::vector<std::string> badSteps = GetSteps(bad);
-                                            if (badSteps.size() > currSteps.size()) continue;
-                                            
-                                            size_t i = 0, j = 0;
-                                            while (i < badSteps.size() && j < currSteps.size()) {
-                                                if (badSteps[i] == currSteps[j]) i++;
-                                                j++;
-                                            }
-                                            if (i == badSteps.size()) { isRedundant = true; break; }
-                                        }
+                                    std::vector<std::string> steps = ParsePlan(sol);
+                                    if (!IsRedundant(steps)) {
+                                        foundPlans.push_back(steps);
+                                        return sol;
                                     }
-                                    if (!isRedundant) return sol;
                                 }
                             }
                         }
@@ -700,6 +874,7 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
             std::vector<ActiveRuleInfo> activeRuleInfos;
 
             // Populate Movable Inventory (Only Pushable text that is NOT critical)
+            std::map<int, std::vector<std::vector<bool>>> textReachability;
             for(int y=0; y<currentHeight; y++) {
                 for(int x=0; x<currentWidth; x++) {
                     if (accessible[y*currentWidth+x]) {
@@ -709,6 +884,7 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                                 if (IsPushable(x, y)) {
                                     if (criticalCoords.find(y*currentWidth+x) == criticalCoords.end()) {
                                         movableInventory[o.element]++;
+                                        textReachability[o.element].push_back(GetPushableReach(s, x, y));
                                     }
                                 }
                             }
@@ -879,6 +1055,15 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                         return true;
                     };
 
+                    auto CanReach = [&](int elem, int tx, int ty) {
+                        if (textReachability.find(elem) == textReachability.end()) return false;
+                        if (tx < 0 || tx >= currentWidth || ty < 0 || ty >= currentHeight) return false;
+                        for(const auto& mask : textReachability[elem]) {
+                            if (mask[ty * currentWidth + tx]) return true;
+                        }
+                        return false;
+                    };
+
                     // 1. Share NOUN
                     if (r.noun == p.noun) {
                         // Check for space perpendicular to Noun (r.x1, r.y1)
@@ -886,7 +1071,10 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                         bool fwd = IsFree(r.x1 + p_dx, r.y1 + p_dy) && IsFree(r.x1 + 2*p_dx, r.y1 + 2*p_dy);
                         bool bwd = IsFree(r.x1 - p_dx, r.y1 - p_dy) && IsFree(r.x1 - 2*p_dx, r.y1 - 2*p_dy);
                         
-                        if ((fwd || bwd) && movableInventory[TEXT_IS] >= 1 && movableInventory[p.prop] >= 1) {
+                        bool canFwd = fwd && CanReach(TEXT_IS, r.x1 + p_dx, r.y1 + p_dy) && CanReach(p.prop, r.x1 + 2*p_dx, r.y1 + 2*p_dy);
+                        bool canBwd = bwd && CanReach(TEXT_IS, r.x1 - p_dx, r.y1 - p_dy) && CanReach(p.prop, r.x1 - 2*p_dx, r.y1 - 2*p_dy);
+
+                        if (canFwd || canBwd) {
                             std::vector<Rule> nextRules = currentlyActive;
                             nextRules.push_back(p);
                             TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Noun)");
@@ -909,7 +1097,12 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                         bool fwd = IsFree(r.x3 + p_dx, r.y3 + p_dy) && IsFree(r.x3 + 2*p_dx, r.y3 + 2*p_dy);
                         bool bwd = IsFree(r.x3 - p_dx, r.y3 - p_dy) && IsFree(r.x3 - 2*p_dx, r.y3 - 2*p_dy);
 
-                        if ((fwd || bwd) && movableInventory[p.noun] >= 1 && movableInventory[TEXT_IS] >= 1) {
+                        // Check specific reachability if possible
+                        bool canReachFwd = fwd && CanReach(p.noun, r.x3 + 2*p_dx, r.y3 + 2*p_dy) && CanReach(TEXT_IS, r.x3 + p_dx, r.y3 + p_dy);
+                        bool canReachBwd = bwd && CanReach(p.noun, r.x3 - 2*p_dx, r.y3 - 2*p_dy) && CanReach(TEXT_IS, r.x3 - p_dx, r.y3 - p_dy);
+
+                        // Fallback to general inventory if specific check fails (or just use general for now to be safe)
+                        if (canReachFwd || canReachBwd) {
                             std::vector<Rule> nextRules = currentlyActive;
                             nextRules.push_back(p);
                             TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Prop)");
@@ -921,7 +1114,7 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                     // Need space for NOUN and PROP on opposite sides
                     bool possible = IsFree(r.x2 - p_dx, r.y2 - p_dy) && IsFree(r.x2 + p_dx, r.y2 + p_dy);
                     
-                    if (possible && movableInventory[p.noun] >= 1 && movableInventory[p.prop] >= 1) {
+                    if (possible && CanReach(p.noun, r.x2 - p_dx, r.y2 - p_dy) && CanReach(p.prop, r.x2 + p_dx, r.y2 + p_dy)) {
                         std::vector<Rule> nextRules = currentlyActive;
                         nextRules.push_back(p);
                         TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-IS)");
@@ -933,7 +1126,7 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                         // Need p.noun IS -> r.noun. Space "before" r.noun.
                         bool bwd = IsFree(r.x1 - p_dx, r.y1 - p_dy) && IsFree(r.x1 - 2*p_dx, r.y1 - 2*p_dy);
                         
-                        if (bwd && movableInventory[p.noun] >= 1 && movableInventory[TEXT_IS] >= 1) {
+                        if (bwd && CanReach(p.noun, r.x1 - 2*p_dx, r.y1 - 2*p_dy) && CanReach(TEXT_IS, r.x1 - p_dx, r.y1 - p_dy)) {
                             std::vector<Rule> nextRules = currentlyActive;
                             nextRules.push_back(p);
                             TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Transform-1)");
@@ -946,7 +1139,7 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                         // Need r.prop -> IS p.prop. Space "after" r.prop.
                         bool fwd = IsFree(r.x3 + p_dx, r.y3 + p_dy) && IsFree(r.x3 + 2*p_dx, r.y3 + 2*p_dy);
                         
-                        if (fwd && movableInventory[TEXT_IS] >= 1 && movableInventory[p.prop] >= 1) {
+                        if (fwd && CanReach(TEXT_IS, r.x3 + p_dx, r.y3 + p_dy) && CanReach(p.prop, r.x3 + 2*p_dx, r.y3 + 2*p_dy)) {
                             std::vector<Rule> nextRules = currentlyActive;
                             nextRules.push_back(p);
                             TryPushState(nextRules, "\n -> Form " + GetSolverName(p.noun) + " IS " + GetSolverName(p.prop) + " (Cross-Transform-2)");
@@ -1008,16 +1201,19 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                         }
                         
                         if(isSink) {
-                            // Check if adjacent to reach (i.e., we can push something INTO it)
-                            bool adj = false;
-                            for(int i=0; i<4; i++) {
-                                int nx = x+dx[i], ny = y+dy[i];
-                                if(nx>=0 && nx<currentWidth && ny>=0 && ny<currentHeight && reachable[ny*currentWidth+nx]) {
-                                    adj = true; break;
+                            // Check if any ammo can reach the sink
+                            bool canReachSink = false;
+                            int ammoIdx = -1;
+                            for(int k=0; k<ammo.size(); k++) {
+                                auto mask = GetPushableReach(s, ammo[k].first, ammo[k].second);
+                                if (mask[y * currentWidth + x]) {
+                                    canReachSink = true;
+                                    ammoIdx = k;
+                                    break;
                                 }
                             }
                             
-                            if(adj) {
+                            if(canReachSink) {
                                 GameState nextState = s;
                                 // Remove Sink Object
                                 Cell& sinkCell = GetCell(nextState, x, y);
@@ -1026,7 +1222,7 @@ std::string SolveLogic(const GameState& startState, const std::unordered_set<std
                                 }
                                 
                                 // Remove Ammo (Take the first one)
-                                std::pair<int,int> a = ammo[0];
+                                std::pair<int,int> a = ammo[ammoIdx];
                                 Cell& ammoCell = GetCell(nextState, a.first, a.second);
                                 int pushedElem = -1;
                                 for(auto it=ammoCell.objects.begin(); it!=ammoCell.objects.end(); ) { 

@@ -467,15 +467,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             if(wParam == 'L') {
-                std::unordered_set<std::string> forbidden;
+                LogicSolver solver(currentState);
                 while(true) {
-                    std::string sol = SolveLogic(currentState, forbidden);
+                    std::string sol = solver.NextSolution();
                     if (sol == "No Logic Solution" || sol == "Logic Solver Timeout") {
                         MessageBoxA(NULL, sol.c_str(), "Logic Solution", MB_OK);
                         break;
                     }
                     if (MessageBoxA(NULL, (sol + "\n\nFind another solution?").c_str(), "Logic Solution", MB_YESNO) == IDYES) {
-                        forbidden.insert(sol);
+                        // Continue
                     } else break;
                 }
                 return 0;
