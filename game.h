@@ -25,6 +25,9 @@ struct GameState {
 
 // --- GLOBALS ---
 extern GameState currentState;
+extern GameState initialLevelState;
+extern int initialWidth;
+extern int initialHeight;
 extern std::vector<GameState> undoStack;
 extern int currentWidth;
 extern int currentHeight;

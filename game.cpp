@@ -10,6 +10,9 @@
 
 // --- GLOBALS ---
 GameState currentState;
+GameState initialLevelState;
+int initialWidth = 20;
+int initialHeight = 12;
 std::vector<GameState> undoStack;
 int currentWidth = 20;
 int currentHeight = 12;
@@ -17,8 +20,8 @@ int currentLevelIndex = 0;
 bool isEditorMode = false;
 int editorPaletteIdx = 0;
 const std::vector<int> editorPalette = {
-    WALL, BABA, FLAG, ROCK, WATER, SKULL,
-    TEXT_BABA, TEXT_FLAG, TEXT_WALL, TEXT_ROCK, TEXT_WATER, TEXT_SKULL,
+    WALL, BABA, FLAG, ROCK, WATER, SKULL, LAVA,
+    TEXT_BABA, TEXT_FLAG, TEXT_WALL, TEXT_ROCK, TEXT_WATER, TEXT_SKULL, TEXT_LAVA,
     TEXT_IS, TEXT_YOU, TEXT_WIN, TEXT_STOP, TEXT_PUSH, TEXT_SINK, TEXT_DEFEAT, TEXT_HOT, TEXT_MELT
 };
 
@@ -277,25 +280,28 @@ void LoadLevel(int idx, HWND hwnd) {
     
     currentHeight = mapData.size();
     currentWidth = currentHeight > 0 ? mapData[0].size() : 0;
+    initialWidth = currentWidth;
+    initialHeight = currentHeight;
     
-    currentState.grid.clear();
-    currentState.grid.resize(currentWidth * currentHeight);
+    initialLevelState.grid.clear();
+    initialLevelState.grid.resize(initialWidth * initialHeight);
     
     // Build local lookup
     std::map<char, int> charToElem;
     for(const auto& kv : levelDef.legend) charToElem[kv.first] = ElementFromString(kv.second);
     
-    currentState.hasWon = false;
+    initialLevelState.hasWon = false;
     undoStack.clear();
 
     for(int y=0; y<currentHeight; y++) {
         for(int x=0; x<currentWidth; x++) {
             int elem = charToElem.count(mapData[y][x]) ? charToElem[mapData[y][x]] : EMPTY;
             if (elem != EMPTY) {
-                GetCell(currentState, x, y).objects.push_back({elem});
+                GetCell(initialLevelState, x, y).objects.push_back({elem});
             }
         }
     }
+    currentState = initialLevelState;
     ParseRules(currentState);
     CheckWin(currentState);
     

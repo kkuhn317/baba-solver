@@ -59,12 +59,14 @@ void GetDrawParams(int element, COLORREF& bg, COLORREF& txt, const char*& t, boo
         case ROCK: bg = C_ROCK; break;
         case WATER: bg = C_WATER; break;
         case SKULL: bg = C_DEFEAT; break;
+        case LAVA: bg = C_LAVA; break;
         case TEXT_BABA: t="BABA"; txt = C_TEXT_PINK; transparent = true; break;
         case TEXT_FLAG: t="FLAG"; txt = C_FLAG; transparent = true; break;
         case TEXT_WALL: t="WALL"; txt = C_WALL; transparent = true; break;
         case TEXT_ROCK: t="ROCK"; txt = C_ROCK; transparent = true; break;
         case TEXT_WATER: t="WATER"; txt = C_WATER; transparent = true; break;
         case TEXT_SKULL: t="SKULL"; txt = C_DEFEAT; transparent = true; break;
+        case TEXT_LAVA: t="LAVA"; txt = C_LAVA; transparent = true; break;
         case TEXT_IS:   t="IS";   txt = C_TEXT_WHITE; transparent = true; break;
         case TEXT_YOU:  t="YOU";  bg = C_TEXT_PINK; break;
         case TEXT_WIN:  t="WIN";  bg = C_FLAG; break;
@@ -372,7 +374,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         if(wParam == VK_RIGHT) dx=1;
         if(wParam == VK_UP) dy=-1;
         if(wParam == VK_DOWN) dy=1;
-        if(wParam == 'R' && !isEditorMode) { LoadLevel(currentLevelIndex, hwnd); InvalidateRect(hwnd, NULL, TRUE); return 0; }
         if(wParam >= '1' && wParam <= '9') {
             int level = wParam - '1';
             if (level < levels.size()) {
@@ -400,6 +401,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         // Editor Toggles
         if(wParam == 'E') {
             isEditorMode = !isEditorMode;
+            
+            if (isEditorMode) {
+                // Entering Editor: Reset to starting position
+                currentState = initialLevelState;
+                currentWidth = initialWidth;
+                currentHeight = initialHeight;
+                undoStack.clear();
+                ParseRules(currentState);
+                
+                // Resize window to match initial state
+                int newWidth = currentWidth * TILE_SIZE + 20;
+                int newHeight = currentHeight * TILE_SIZE + 40;
+                SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
+            } else {
+                // Exiting Editor: Save current state as the new "Reset" point
+                initialLevelState = currentState;
+                initialWidth = currentWidth;
+                initialHeight = currentHeight;
+                undoStack.clear();
+            }
+
             SetWindowTextA(hwnd, isEditorMode ? "Native Baba - EDITOR MODE" : "Native Baba");
             ShowWindow(hPaletteWnd, isEditorMode ? SW_SHOW : SW_HIDE);
             InvalidateRect(hwnd, NULL, TRUE);
@@ -456,6 +478,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 }
             }
         } else {
+            if(wParam == 'R') {
+                // Reset to the state defined by the editor (or original level)
+                currentState = initialLevelState;
+                currentWidth = initialWidth;
+                currentHeight = initialHeight;
+                undoStack.clear();
+                ParseRules(currentState);
+                CheckWin(currentState);
+                InvalidateRect(hwnd, NULL, TRUE);
+                return 0;
+            }
             if(wParam == 'S') {
                 std::string sol = Solve(currentState);
                 MessageBoxA(NULL, sol.c_str(), "Solution", MB_OK);

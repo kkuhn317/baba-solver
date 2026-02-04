@@ -9,12 +9,14 @@ std::string GetElementName(int e) {
         case ROCK: return "ROCK";
         case WATER: return "WATER";
         case SKULL: return "SKULL";
+        case LAVA: return "LAVA";
         case TEXT_BABA: return "TEXT_BABA";
         case TEXT_FLAG: return "TEXT_FLAG";
         case TEXT_WALL: return "TEXT_WALL";
         case TEXT_ROCK: return "TEXT_ROCK";
         case TEXT_WATER: return "TEXT_WATER";
         case TEXT_SKULL: return "TEXT_SKULL";
+        case TEXT_LAVA: return "TEXT_LAVA";
         case TEXT_IS:   return "IS";
         case TEXT_YOU:  return "YOU";
         case TEXT_WIN:  return "WIN";
@@ -35,12 +37,14 @@ int ElementFromString(const std::string& name) {
     if (name == "ROCK") return ROCK;
     if (name == "WATER") return WATER;
     if (name == "SKULL") return SKULL;
+    if (name == "LAVA") return LAVA;
     if (name == "TEXT_BABA") return TEXT_BABA;
     if (name == "TEXT_FLAG") return TEXT_FLAG;
     if (name == "TEXT_WALL") return TEXT_WALL;
     if (name == "TEXT_ROCK") return TEXT_ROCK;
     if (name == "TEXT_WATER") return TEXT_WATER;
     if (name == "TEXT_SKULL") return TEXT_SKULL;
+    if (name == "TEXT_LAVA") return TEXT_LAVA;
     if (name == "IS") return TEXT_IS;
     if (name == "YOU") return TEXT_YOU;
     if (name == "WIN") return TEXT_WIN;
@@ -53,7 +57,7 @@ int ElementFromString(const std::string& name) {
     return EMPTY;
 }
 
-bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_SKULL); }
+bool IsNoun(int e) { return (e >= TEXT_BABA && e <= TEXT_LAVA); }
 bool IsProperty(int e) { return (e >= TEXT_YOU && e <= TEXT_MELT); }
 
 int TextToElement(int textID) {
@@ -63,6 +67,7 @@ int TextToElement(int textID) {
     if (textID == TEXT_WALL) return WALL;
     if (textID == TEXT_WATER) return WATER;
     if (textID == TEXT_SKULL) return SKULL;
+    if (textID == TEXT_LAVA) return LAVA;
     return 0;
 }
 
@@ -86,12 +91,14 @@ char GetDefaultChar(int e) {
         case ROCK: return 'R';
         case WATER: return 'W';
         case SKULL: return 'S';
+        case LAVA: return 'L';
         case TEXT_BABA: return 'b';
         case TEXT_FLAG: return 'f';
         case TEXT_WALL: return 'w';
         case TEXT_ROCK: return 'r';
         case TEXT_WATER: return 'a';
         case TEXT_SKULL: return 'u';
+        case TEXT_LAVA: return 'l';
         case TEXT_IS: return 'i';
         case TEXT_YOU: return 'y';
         case TEXT_WIN: return 'n';
