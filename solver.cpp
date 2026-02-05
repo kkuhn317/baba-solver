@@ -843,28 +843,8 @@ std::string LogicSolver::NextSolution() {
             std::vector<Rule> fixedRules;
             std::vector<RuleLoc> currentLocs = GetRuleLocations(s);
 
-            // Identify Critical Rules (Sole source of YOU)
-            std::set<int> criticalCoords;
-            int youRuleCount = 0;
-            int criticalRuleIdx = -1;
-            
-            for(int i=0; i<currentLocs.size(); i++) {
-                const auto& r = currentLocs[i];
-                if (TextToProp(r.prop) == P_YOU) {
-                    if (s.propertyMap[TextToElement(r.noun)] & P_YOU) {
-                        youRuleCount++;
-                        criticalRuleIdx = i;
-                    }
-                }
-            }
-            
-            if (youRuleCount == 1) {
-                const auto& r = currentLocs[criticalRuleIdx];
-                criticalCoords.insert(r.y1 * currentWidth + r.x1);
-                criticalCoords.insert(r.y2 * currentWidth + r.x2);
-                criticalCoords.insert(r.y3 * currentWidth + r.x3);
-            }
-            
+            // Identify Fixed vs Mutable Rules (And populate usedRuleCoords)
+            std::vector<Rule> currentlyActive;
             struct ActiveRuleInfo {
                 Rule rule;
                 bool nounFixed;
@@ -872,29 +852,7 @@ std::string LogicSolver::NextSolution() {
                 bool propFixed;
             };
             std::vector<ActiveRuleInfo> activeRuleInfos;
-
-            // Populate Movable Inventory (Only Pushable text that is NOT critical)
-            std::map<int, std::vector<std::vector<bool>>> textReachability;
-            for(int y=0; y<currentHeight; y++) {
-                for(int x=0; x<currentWidth; x++) {
-                    if (accessible[y*currentWidth+x]) {
-                        const Cell& c = GetCell(s, x, y);
-                        for(const auto& o : c.objects) {
-                            if (o.element >= 10) {
-                                if (IsPushable(x, y)) {
-                                    if (criticalCoords.find(y*currentWidth+x) == criticalCoords.end()) {
-                                        movableInventory[o.element]++;
-                                        textReachability[o.element].push_back(GetPushableReach(s, x, y));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Identify Fixed vs Mutable Rules
-            std::vector<Rule> currentlyActive;
+            std::set<int> usedRuleCoords;
 
             for(auto& r : currentLocs) {
                 bool nP = IsPushable(r.x1, r.y1);
@@ -913,12 +871,40 @@ std::string LogicSolver::NextSolution() {
                 
                 if (!nP && !iP && !pP) {
                     // Fully Fixed (Permanent)
-                    if (active) fixedRules.push_back({r.noun, r.prop});
+                    if (active) {
+                        fixedRules.push_back({r.noun, r.prop});
+                        usedRuleCoords.insert(r.y1 * currentWidth + r.x1);
+                        usedRuleCoords.insert(r.y2 * currentWidth + r.x2);
+                        usedRuleCoords.insert(r.y3 * currentWidth + r.x3);
+                    }
                 } else {
                     // Partially or Fully Movable
                     if (active) {
                         currentlyActive.push_back({r.noun, r.prop});
                         activeRuleInfos.push_back({{r.noun, r.prop}, !nP, !iP, !pP});
+                        usedRuleCoords.insert(r.y1 * currentWidth + r.x1);
+                        usedRuleCoords.insert(r.y2 * currentWidth + r.x2);
+                        usedRuleCoords.insert(r.y3 * currentWidth + r.x3);
+                    }
+                }
+            }
+
+            // Populate Movable Inventory (Only Pushable text that is NOT used in an ACTIVE rule)
+            std::map<int, std::vector<std::vector<bool>>> textReachability;
+            for(int y=0; y<currentHeight; y++) {
+                for(int x=0; x<currentWidth; x++) {
+                    if (accessible[y*currentWidth+x]) {
+                        const Cell& c = GetCell(s, x, y);
+                        for(const auto& o : c.objects) {
+                            if (o.element >= 10) {
+                                if (IsPushable(x, y)) {
+                                    if (usedRuleCoords.find(y*currentWidth+x) == usedRuleCoords.end()) {
+                                        movableInventory[o.element]++;
+                                        textReachability[o.element].push_back(GetPushableReach(s, x, y));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -968,43 +954,70 @@ std::string LogicSolver::NextSolution() {
             auto CheckResources = [&](const std::vector<Rule>& targetRules) {
                 std::map<int, int> inv = movableInventory;
                 std::vector<ActiveRuleInfo> slots = activeRuleInfos;
+                std::vector<bool> ruleSatisfied(targetRules.size(), false);
                 
-                for(const auto& tr : targetRules) {
-                    bool satisfied = false;
-                    
-                    // 1. Try to use a Slot (Maintain or Adapt existing rule)
+                // 1. Exact Matches (Maintenance)
+                for(size_t i=0; i<targetRules.size(); i++) {
+                    for(auto it = slots.begin(); it != slots.end(); ++it) {
+                        if (it->rule.noun == targetRules[i].noun && it->rule.prop == targetRules[i].prop) {
+                            slots.erase(it);
+                            ruleSatisfied[i] = true;
+                            break;
+                        }
+                    }
+                }
+
+                // 2. Partial Matches (Adaptation)
+                for(size_t i=0; i<targetRules.size(); i++) {
+                    if (ruleSatisfied[i]) continue;
+                    const Rule& tr = targetRules[i];
+
                     for(auto it = slots.begin(); it != slots.end(); ++it) {
                         bool match = true;
-                        // If the slot has a fixed component, the target must match it
                         if (it->nounFixed && it->rule.noun != tr.noun) match = false;
                         if (it->propFixed && it->rule.prop != tr.prop) match = false;
                         
                         if (match) {
-                            // Cost is 0 if we keep the existing component, 1 if we swap it
                             int costNoun = (it->rule.noun == tr.noun) ? 0 : 1;
-                            int costIs   = 0; // IS is always IS
+                            int costIs   = 0;
                             int costProp = (it->rule.prop == tr.prop) ? 0 : 1;
                             
                             if (inv[tr.noun] >= costNoun && inv[TEXT_IS] >= costIs && inv[tr.prop] >= costProp) {
                                 inv[tr.noun] -= costNoun;
                                 inv[TEXT_IS] -= costIs;
                                 inv[tr.prop] -= costProp;
+                                
+                                // Recycle replaced components
+                                if (costNoun == 1 && !it->nounFixed) inv[it->rule.noun]++;
+                                if (costProp == 1 && !it->propFixed) inv[it->rule.prop]++;
+                                
                                 slots.erase(it);
-                                satisfied = true;
+                                ruleSatisfied[i] = true;
                                 break;
                             }
                         }
                     }
-                    if (satisfied) continue;
+                }
+
+                // 3. Dismantle remaining slots
+                for(const auto& s : slots) {
+                    if (!s.nounFixed) inv[s.rule.noun]++;
+                    if (!s.isFixed)   inv[TEXT_IS]++;
+                    if (!s.propFixed) inv[s.rule.prop]++;
+                }
+
+                // 4. Build from Scratch
+                for(size_t i=0; i<targetRules.size(); i++) {
+                    if (ruleSatisfied[i]) continue;
+                    const Rule& tr = targetRules[i];
                     
-                    // 2. Build from Scratch (Purely movable)
                     if (inv[tr.noun] >= 1 && inv[TEXT_IS] >= 1 && inv[tr.prop] >= 1) {
                         inv[tr.noun]--; inv[TEXT_IS]--; inv[tr.prop]--;
-                        satisfied = true;
+                        ruleSatisfied[i] = true;
                     }
-                    
-                    if (!satisfied) return false;
                 }
+                
+                for(bool b : ruleSatisfied) if(!b) return false;
                 return true;
             };
             
@@ -1045,6 +1058,7 @@ std::string LogicSolver::NextSolution() {
                     
                     auto IsFree = [&](int x, int y) {
                         if (x < 0 || x >= currentWidth || y < 0 || y >= currentHeight) return false;
+                        if (usedRuleCoords.find(y*currentWidth+x) != usedRuleCoords.end()) return false;
                         if (!accessible[y*currentWidth+x]) return false;
                         const Cell& c = GetCell(const_cast<GameState&>(s), x, y);
                         for(const auto& o : c.objects) {

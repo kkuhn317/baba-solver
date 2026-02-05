@@ -370,10 +370,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         if(wParam == VK_RIGHT) dx=1;
         if(wParam == VK_UP) dy=-1;
         if(wParam == VK_DOWN) dy=1;
-        if(wParam >= '1' && wParam <= '9') {
-            int level = wParam - '1';
+        if(wParam >= '0' && wParam <= '9') {
+            int level = (wParam == '0') ? 9 : (wParam - '1');
             if (level < levels.size()) {
                 LoadLevel(level, hwnd);
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            return 0;
+        }
+        if(wParam == VK_NEXT || wParam == VK_PRIOR) {
+            if (!levels.empty()) {
+                int delta = (wParam == VK_NEXT) ? 1 : -1;
+                int nextLevel = (currentLevelIndex + delta + (int)levels.size()) % (int)levels.size();
+                LoadLevel(nextLevel, hwnd);
                 InvalidateRect(hwnd, NULL, TRUE);
             }
             return 0;
@@ -546,7 +555,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     std::cout << "R      : Reset Level" << std::endl;
     std::cout << "Z      : Undo Move" << std::endl;
     std::cout << "G      : Toggle Grid" << std::endl;
-    std::cout << "1-9    : Load Level" << std::endl;
+    std::cout << "1-9, 0 : Load Level 1-10" << std::endl;
+    std::cout << "PgUp/Dn: Cycle Levels" << std::endl;
     std::cout << "----------------------------" << std::endl;
     std::cout << "S      : Run Basic Solver (BFS)" << std::endl;
     std::cout << "P      : Run Push-Optimized Solver" << std::endl;
