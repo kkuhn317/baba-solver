@@ -10,6 +10,9 @@
 #include <utility>
 #include <iostream>
 #include <fstream>
+#include <atomic>
+#include <memory>
+#include <thread>
 #include "constants.h"
 #include "definitions.h"
 #include "game.h"
@@ -18,9 +21,41 @@
 #include "levels.h"
 
 HWND hPaletteWnd = NULL;
+HWND hSolutionButton = NULL;
 bool showGrid = false;
 int lastEditX = -1;
 int lastEditY = -1;
+
+constexpr UINT WM_SOLVER_COMPLETE = WM_APP + 1;
+constexpr UINT_PTR SOLUTION_TIMER_ID = 1;
+constexpr int ID_VIEW_SOLUTION = 1001;
+
+enum class SolverKind {
+    Basic,
+    Optimized,
+    Logic
+};
+
+struct SolverResult {
+    SolverKind kind;
+    std::string text;
+    GameState startState;
+    int startWidth;
+    int startHeight;
+    int startLevelIndex;
+};
+
+std::atomic<bool> solverRunning{false};
+std::atomic<bool> cancelSolver{false};
+std::atomic<bool> appClosing{false};
+std::shared_ptr<LogicSolver> activeLogicSolver;
+GameState solutionStartState;
+std::string solutionMoves;
+size_t solutionMoveIndex = 0;
+bool solutionPlaying = false;
+int solutionStartWidth = 0;
+int solutionStartHeight = 0;
+int solutionStartLevelIndex = 0;
 
 void DrawRect(HDC hdc, int x, int y, COLORREF bgColor, const char* text = nullptr, COLORREF textColor = RGB(0,0,0), bool transparent = false) {
     if (!transparent) {
@@ -251,13 +286,115 @@ void LoadLevelFromFile(const char* filename, HWND hwnd) {
     CheckWin(currentState);
     
     int newWidth = currentWidth * TILE_SIZE + 20;
-    int newHeight = currentHeight * TILE_SIZE + 40;
+    int newHeight = currentHeight * TILE_SIZE + 40 + CONTROL_BAR_HEIGHT;
     SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
+}
+
+static void RestoreGameWindowTitle(HWND hwnd) {
+    char title[64];
+    sprintf_s(title, "Native Baba - Level %d", currentLevelIndex + 1);
+    SetWindowTextA(hwnd, title);
+}
+
+static void StartSolverJob(HWND hwnd, SolverKind kind,
+                           std::shared_ptr<LogicSolver> continuingLogic = nullptr) {
+    bool expected = false;
+    if (!solverRunning.compare_exchange_strong(expected, true)) return;
+    cancelSolver.store(false);
+
+    GameState snapshot = currentState;
+    int snapshotWidth = currentWidth;
+    int snapshotHeight = currentHeight;
+    int snapshotLevelIndex = currentLevelIndex;
+    std::shared_ptr<LogicSolver> logic = continuingLogic;
+    if (kind == SolverKind::Logic && !logic) {
+        logic = std::make_shared<LogicSolver>(snapshot);
+        activeLogicSolver = logic;
+    }
+
+    SetWindowTextA(hwnd, "Native Baba - SOLVING...");
+    EnableWindow(hSolutionButton, FALSE);
+    InvalidateRect(hwnd, NULL, TRUE);
+
+    std::thread([hwnd, kind, snapshot = std::move(snapshot), snapshotWidth,
+                 snapshotHeight, snapshotLevelIndex, logic = std::move(logic)]() mutable {
+        SolverResult result{kind, "", snapshot, snapshotWidth, snapshotHeight, snapshotLevelIndex};
+        try {
+            if (kind == SolverKind::Basic) result.text = Solve(snapshot, &cancelSolver);
+            else if (kind == SolverKind::Optimized) result.text = SolveOptimized(snapshot, -1, -1, 200000, &cancelSolver);
+            else result.text = logic->NextSolution(&cancelSolver);
+        } catch (const std::exception& error) {
+            result.text = std::string("Solver error: ") + error.what();
+        } catch (...) {
+            result.text = "Solver error: unknown exception";
+        }
+
+        // SendMessage keeps the stack-backed result alive until the UI thread
+        // has copied/displayed it, avoiding detached-thread ownership leaks.
+        if (!appClosing.load() && IsWindow(hwnd)) {
+            SendMessage(hwnd, WM_SOLVER_COMPLETE, 0, reinterpret_cast<LPARAM>(&result));
+        }
+    }).detach();
+}
+
+static std::string ExtractSolutionMoves(SolverKind kind, const std::string& result) {
+    std::string moves;
+    if (kind == SolverKind::Logic) {
+        const std::string marker = "MOVES: ";
+        size_t start = result.rfind(marker);
+        if (start == std::string::npos) return "";
+        start += marker.size();
+        size_t end = result.find('\n', start);
+        moves = result.substr(start, end == std::string::npos ? end : end - start);
+    } else {
+        moves = result;
+    }
+
+    if (moves.empty()) return "";
+    for (char move : moves) {
+        if (move != 'L' && move != 'R' && move != 'U' && move != 'D') return "";
+    }
+    return moves;
+}
+
+static void StopSolutionPlayback(HWND hwnd) {
+    if (!solutionPlaying) return;
+    KillTimer(hwnd, SOLUTION_TIMER_ID);
+    solutionPlaying = false;
+    EnableWindow(hSolutionButton, !solutionMoves.empty());
+    RestoreGameWindowTitle(hwnd);
+    InvalidateRect(hwnd, NULL, TRUE);
+}
+
+static void StartSolutionPlayback(HWND hwnd) {
+    if (solverRunning.load() || solutionMoves.empty()) return;
+    solutionPlaying = true;
+    solutionMoveIndex = 0;
+    currentWidth = solutionStartWidth;
+    currentHeight = solutionStartHeight;
+    currentLevelIndex = solutionStartLevelIndex;
+    currentState = solutionStartState;
+    ParseRules(currentState);
+    CheckWin(currentState);
+    undoStack.clear();
+    EnableWindow(hSolutionButton, FALSE);
+    SetWindowTextA(hwnd, "Native Baba - PLAYING SOLUTION...");
+    SetWindowPos(hwnd, NULL, 0, 0,
+                 currentWidth * TILE_SIZE + 20,
+                 currentHeight * TILE_SIZE + 40 + CONTROL_BAR_HEIGHT,
+                 SWP_NOMOVE | SWP_NOZORDER);
+    SetTimer(hwnd, SOLUTION_TIMER_ID, 250, NULL);
+    InvalidateRect(hwnd, NULL, TRUE);
 }
 
 // --- WINDOWS MAIN ---
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+    case WM_SIZE:
+        if (hSolutionButton) {
+            MoveWindow(hSolutionButton, 10, currentHeight * TILE_SIZE + 6, 125, 30, TRUE);
+        }
+        return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
@@ -318,11 +455,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             TextOutA(hdc, 10, 30, buf, (int)strlen(buf));
         }
 
+        if (solverRunning.load()) {
+            RECT statusRect = {10, 10, 180, 42};
+            HBRUSH statusBrush = CreateSolidBrush(RGB(30, 30, 30));
+            FillRect(hdc, &statusRect, statusBrush);
+            DeleteObject(statusBrush);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 220, 80));
+            const char* status = cancelSolver.load() ? "CANCELLING..." : "SOLVING...";
+            TextOutA(hdc, 20, 18, status, (int)strlen(status));
+        } else if (solutionPlaying) {
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 220, 80));
+            TextOutA(hdc, 150, currentHeight * TILE_SIZE + 13,
+                     "Esc stops playback", 18);
+        }
+
         EndPaint(hwnd, &ps);
         return 0;
     }
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN: {
+        if (solverRunning.load() || solutionPlaying) return 0;
         if (isEditorMode) {
             int x = LOWORD(lParam) / TILE_SIZE;
             int y = HIWORD(lParam) / TILE_SIZE;
@@ -343,6 +497,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
     case WM_MOUSEMOVE: {
+        if (solverRunning.load() || solutionPlaying) return 0;
         if (isEditorMode && (wParam & (MK_LBUTTON | MK_RBUTTON))) {
             int x = LOWORD(lParam) / TILE_SIZE;
             int y = HIWORD(lParam) / TILE_SIZE;
@@ -365,6 +520,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         return 0;
     }
     case WM_KEYDOWN: {
+        // Keep the snapshot being searched immutable. System/window messages
+        // still flow normally, so Windows continues to regard the app as responsive.
+        if (solverRunning.load()) {
+            if (wParam == VK_ESCAPE) {
+                cancelSolver.store(true);
+                SetWindowTextA(hwnd, "Native Baba - CANCELLING...");
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            return 0;
+        }
+        if (solutionPlaying) {
+            if (wParam == VK_ESCAPE) StopSolutionPlayback(hwnd);
+            return 0;
+        }
         int dx=0, dy=0;
         if(wParam == VK_LEFT) dx=-1;
         if(wParam == VK_RIGHT) dx=1;
@@ -417,7 +586,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 
                 // Resize window to match initial state
                 int newWidth = currentWidth * TILE_SIZE + 20;
-                int newHeight = currentHeight * TILE_SIZE + 40;
+                int newHeight = currentHeight * TILE_SIZE + 40 + CONTROL_BAR_HEIGHT;
                 SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
             } else {
                 // Exiting Editor: Save current state as the new "Reset" point
@@ -442,7 +611,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
                 if (resized) {
                     int newWidth = currentWidth * TILE_SIZE + 20;
-                    int newHeight = currentHeight * TILE_SIZE + 40;
+                    int newHeight = currentHeight * TILE_SIZE + 40 + CONTROL_BAR_HEIGHT;
                     SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
                     InvalidateRect(hwnd, NULL, TRUE);
                     return 0;
@@ -495,27 +664,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 return 0;
             }
             if(wParam == 'S') {
-                std::string sol = Solve(currentState);
-                MessageBoxA(NULL, sol.c_str(), "Solution", MB_OK);
+                StartSolverJob(hwnd, SolverKind::Basic);
                 return 0;
             }
             if(wParam == 'P') {
-                std::string sol = SolveOptimized(currentState);
-                MessageBoxA(NULL, sol.c_str(), "Optimized Solution", MB_OK);
+                StartSolverJob(hwnd, SolverKind::Optimized);
                 return 0;
             }
             if(wParam == 'L') {
-                LogicSolver solver(currentState);
-                while(true) {
-                    std::string sol = solver.NextSolution();
-                    if (sol == "No Logic Solution" || sol == "Logic Solver Timeout") {
-                        MessageBoxA(NULL, sol.c_str(), "Logic Solution", MB_OK);
-                        break;
-                    }
-                    if (MessageBoxA(NULL, (sol + "\n\nFind another solution?").c_str(), "Logic Solution", MB_YESNO) == IDYES) {
-                        // Continue
-                    } else break;
-                }
+                StartSolverJob(hwnd, SolverKind::Logic);
                 return 0;
             }
             
@@ -536,7 +693,75 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         return 0;
     }
-    case WM_DESTROY: DestroyWindow(hPaletteWnd); PostQuitMessage(0); return 0;
+    case WM_COMMAND:
+        if (LOWORD(wParam) == ID_VIEW_SOLUTION && HIWORD(wParam) == BN_CLICKED) {
+            StartSolutionPlayback(hwnd);
+            return 0;
+        }
+        break;
+    case WM_TIMER:
+        if (wParam == SOLUTION_TIMER_ID && solutionPlaying) {
+            if (solutionMoveIndex >= solutionMoves.size()) {
+                StopSolutionPlayback(hwnd);
+                return 0;
+            }
+
+            char move = solutionMoves[solutionMoveIndex++];
+            int dx = 0, dy = 0;
+            if (move == 'L') dx = -1;
+            else if (move == 'R') dx = 1;
+            else if (move == 'U') dy = -1;
+            else if (move == 'D') dy = 1;
+            currentState = MakeMove(currentState, dx, dy);
+            InvalidateRect(hwnd, NULL, TRUE);
+
+            if (solutionMoveIndex >= solutionMoves.size()) StopSolutionPlayback(hwnd);
+            return 0;
+        }
+        break;
+    case WM_SOLVER_COMPLETE: {
+        const SolverResult& result = *reinterpret_cast<const SolverResult*>(lParam);
+        solverRunning.store(false);
+        std::string moves = ExtractSolutionMoves(result.kind, result.text);
+        if (!moves.empty()) {
+            solutionStartState = result.startState;
+            solutionStartWidth = result.startWidth;
+            solutionStartHeight = result.startHeight;
+            solutionStartLevelIndex = result.startLevelIndex;
+            solutionMoves = std::move(moves);
+        }
+        EnableWindow(hSolutionButton, !solutionMoves.empty());
+        RestoreGameWindowTitle(hwnd);
+        InvalidateRect(hwnd, NULL, TRUE);
+
+        if (result.kind == SolverKind::Logic) {
+            bool terminal = result.text == "No Logic Solution" ||
+                            result.text == "Logic Solver Timeout" ||
+                            result.text == "Solver cancelled" ||
+                            result.text.rfind("Solver error:", 0) == 0;
+            if (terminal) {
+                MessageBoxA(hwnd, result.text.c_str(), "Logic Solution", MB_OK);
+                activeLogicSolver.reset();
+            } else if (MessageBoxA(hwnd,
+                       (result.text + "\n\nFind another solution?").c_str(),
+                       "Logic Solution", MB_YESNO) == IDYES) {
+                StartSolverJob(hwnd, SolverKind::Logic, activeLogicSolver);
+            } else {
+                activeLogicSolver.reset();
+            }
+        } else {
+            const char* title = result.kind == SolverKind::Basic ? "Solution" : "Optimized Solution";
+            MessageBoxA(hwnd, result.text.c_str(), title, MB_OK);
+        }
+        return 0;
+    }
+    case WM_DESTROY:
+        appClosing.store(true);
+        cancelSolver.store(true);
+        KillTimer(hwnd, SOLUTION_TIMER_ID);
+        DestroyWindow(hPaletteWnd);
+        PostQuitMessage(0);
+        return 0;
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
@@ -577,9 +802,15 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     InitLevels();
     
     int initialWidth = 20 * TILE_SIZE + 20;
-    int initialHeight = 12 * TILE_SIZE + 40;
+    int initialHeight = 12 * TILE_SIZE + 40 + CONTROL_BAR_HEIGHT;
     HWND hwnd = CreateWindowEx(0, "BabaClass", "Native Baba", WS_OVERLAPPEDWINDOW, 100, 100, 
         initialWidth, initialHeight, 0, 0, hInst, 0);
+
+    hSolutionButton = CreateWindowA("BUTTON", "View Solution",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+        10, 12 * TILE_SIZE + 6, 125, 30,
+        hwnd, reinterpret_cast<HMENU>(ID_VIEW_SOLUTION), hInst, NULL);
+    EnableWindow(hSolutionButton, FALSE);
     
     // Create Palette Window
     WNDCLASS wcPal = { 0, PaletteProc, 0, 0, hInst, 0, LoadCursor(0, IDC_ARROW), 0, 0, "BabaPalette" };

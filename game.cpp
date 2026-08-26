@@ -307,7 +307,7 @@ void LoadLevel(int idx, HWND hwnd) {
     
     if (hwnd) {
         int newWidth = currentWidth * 40 + 20;
-        int newHeight = currentHeight * 40 + 40;
+        int newHeight = currentHeight * 40 + 40 + CONTROL_BAR_HEIGHT;
         SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
     }
 }

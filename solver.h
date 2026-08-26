@@ -5,27 +5,33 @@
 #include <vector>
 #include <unordered_set>
 #include <queue>
+#include <atomic>
 #include "game.h"
 
 // --- FUNCTIONS ---
 std::string SerializeState(GameState& s);
 
 // Basic solver. Does BFS search of moves until finding solution
-std::string Solve(const GameState& startState);
+std::string Solve(const GameState& startState, const std::atomic<bool>* cancel = nullptr);
 
 // Solves by minimizing pushes. Now accepts maxIterations (defaulting to 200k if not specified)
-std::string SolveOptimized(const GameState& startState, int targetRuleNoun = -1, int targetRuleProp = -1, int maxIterations = 200000);
+std::string SolveOptimized(const GameState& startState, int targetRuleNoun = -1, int targetRuleProp = -1,
+                           int maxIterations = 200000, const std::atomic<bool>* cancel = nullptr);
 
 // The Brain - Refactored to Class
 class LogicSolver {
 public:
     LogicSolver(const GameState& startState);
-    std::string NextSolution();
+    std::string NextSolution(const std::atomic<bool>* cancel = nullptr);
 
 private:
     struct LogicNode { 
         GameState state; 
         std::string plan; 
+        // Concrete inputs that reproduce this node from the initial state.
+        std::string moves;
+        // Prevents immediately undoing the previous high-level action.
+        std::string lastBrokenRule;
         bool padding = false;
     };
     

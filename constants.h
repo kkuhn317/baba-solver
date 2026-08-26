@@ -3,6 +3,7 @@
 
 // --- CONSTANTS ---
 const int TILE_SIZE = 40;
+const int CONTROL_BAR_HEIGHT = 44;
 extern int GRID_WIDTH;
 extern int GRID_HEIGHT;
 
