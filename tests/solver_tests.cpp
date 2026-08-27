@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <string>
 
@@ -189,6 +190,35 @@ static void TestBundledLevelTwoStillSolves() {
     Require(finalState.hasWon, "bundled level 2 solution does not replay to a win");
 }
 
+static void TestBundledLevelThreeStillSolves() {
+    LoadLevel(2, nullptr);
+    GameState start = currentState;
+    LogicSolver solver(start);
+    std::string solution = solver.NextSolution();
+    Require(solution != "No Logic Solution" && solution != "Logic Solver Timeout",
+            "logic solver regressed on bundled level 3");
+    GameState finalState = ReplayMoves(start, ExtractMoves(solution));
+    Require(finalState.hasWon, "bundled level 3 solution does not replay to a win");
+}
+
+static void TestVolcanoStillSolves() {
+    int volcanoIndex = -1;
+    for (size_t i = 0; i < levels.size(); ++i) {
+        for (const auto& row : levels[i].layout) {
+            if (row.find("#bim#") != std::string::npos) volcanoIndex = static_cast<int>(i);
+        }
+    }
+    Require(volcanoIndex != -1, "could not locate the bundled Volcano level");
+    LoadLevel(volcanoIndex, nullptr);
+    GameState start = currentState;
+    LogicSolver solver(start);
+    std::string solution = solver.NextSolution();
+    Require(solution != "No Logic Solution" && solution != "Logic Solver Timeout",
+            "logic solver failed the bundled Volcano level");
+    GameState finalState = ReplayMoves(start, ExtractMoves(solution));
+    Require(finalState.hasWon, "Volcano solution does not replay to a win");
+}
+
 static void TestCancellationStopsEverySolverMode() {
     LoadLevel(1, nullptr);
     std::atomic<bool> cancelled{true};
@@ -201,10 +231,111 @@ static void TestCancellationStopsEverySolverMode() {
             "logic solver ignored cancellation");
 }
 
-int main() {
+static void TestSolverPublishesProgressSnapshots() {
+    currentWidth = 1;
+    currentHeight = 1;
+    GameState state;
+    state.grid.resize(1);
+    state.hasWon = true;
+
+    int snapshots = 0;
+    Solve(state, nullptr, [&](const GameState& preview, const SolverProgress& progress) {
+        ++snapshots;
+        Require(preview.grid.size() == 1, "progress callback received an invalid board");
+        Require(progress.target == "WIN", "progress callback omitted its search target");
+    });
+    Require(snapshots > 0, "solver did not publish a progress snapshot");
+}
+
+static void TestWalkingWinSearchSkipsBlockedTargets() {
+    auto runBlockedCase = [](int blockingText, int blockingProperty, const char* propertyName) {
+        currentWidth = 5;
+        currentHeight = 4;
+        GameState state;
+        state.grid.resize(currentWidth * currentHeight);
+        auto put = [&](int x, int y, int element) {
+            GetCell(state, x, y).objects.push_back({element});
+        };
+
+        put(0, 0, TEXT_BABA); put(1, 0, TEXT_IS); put(2, 0, TEXT_YOU);
+        put(0, 1, TEXT_FLAG); put(1, 1, TEXT_IS); put(2, 1, TEXT_WIN);
+        put(0, 2, TEXT_FLAG); put(1, 2, TEXT_IS); put(2, 2, blockingText);
+        put(0, 3, BABA);
+        put(4, 3, FLAG);
+        ParseRules(state);
+        CheckWin(state);
+
+        Require((state.propertyMap[FLAG] & P_WIN) != 0, "test FLAG is not WIN");
+        Require((state.propertyMap[FLAG] & blockingProperty) != 0,
+                std::string("test FLAG is not ") + propertyName);
+
+        bool attemptedWalkingWin = false;
+        std::atomic<bool> cancel{false};
+        LogicSolver solver(state);
+        solver.NextSolution(&cancel, [&](const GameState&, const SolverProgress& progress) {
+            if (progress.target == "Reach WIN") attemptedWalkingWin = true;
+            if (progress.target != "Logic plan") cancel.store(true);
+        });
+        Require(!attemptedWalkingWin,
+                std::string("walking WIN search ran for a ") + propertyName + " target");
+    };
+
+    runBlockedCase(TEXT_PUSH, P_PUSH, "PUSH");
+    runBlockedCase(TEXT_STOP, P_STOP, "STOP");
+}
+
+static void TestSelfTransformationsRequireTwoWords() {
+    LoadLevel(2, nullptr);
+    std::map<int, int> nounCounts;
+    for (const auto& cell : currentState.grid) {
+        for (const auto& object : cell.objects) {
+            if (IsNoun(object.element)) nounCounts[object.element]++;
+        }
+    }
+
+    std::vector<Rule> potential = GetPotentialRules(currentState);
+    for (const Rule& rule : potential) {
+        if (rule.noun == rule.prop) {
+            Require(nounCounts[rule.noun] >= 2,
+                    "self-transformation was proposed with only one noun word");
+        }
+    }
+}
+
+static void TestTrappedSelfTransformationIsRejected() {
+    int volcanoIndex = -1;
+    for (size_t i = 0; i < levels.size(); ++i) {
+        for (const std::string& row : levels[i].layout) {
+            if (row.find("#bim#") != std::string::npos) volcanoIndex = static_cast<int>(i);
+        }
+    }
+    Require(volcanoIndex >= 0, "could not locate Volcano for transformation test");
+    LoadLevel(volcanoIndex, nullptr);
+    for (const Rule& rule : GetPotentialRules(currentState)) {
+        Require(rule.noun != TEXT_LAVA || rule.prop != TEXT_LAVA,
+                "trapped LAVA word was treated as usable for LAVA IS LAVA");
+    }
+}
+
+int main(int argc, char** argv) {
     try {
         InitLevels();
         Require(!levels.empty(), "no levels were loaded; run tests from the project directory");
+        if (argc > 1 && std::string(argv[1]) == "volcano") {
+            TestVolcanoStillSolves();
+            std::cout << "Volcano regression passed\n";
+            return 0;
+        }
+        if (argc > 1 && std::string(argv[1]) == "progress") {
+            TestSolverPublishesProgressSnapshots();
+            std::cout << "Progress callback regression passed\n";
+            return 0;
+        }
+        if (argc > 1 && std::string(argv[1]) == "level3") {
+            TestBundledLevelThreeStillSolves();
+            std::cout << "Level 3 regression passed\n";
+            return 0;
+        }
         TestEveryGeneratedStateCanBeReparsed();
         TestLogicSolutionReplaysToAWin();
         TestReverseRuleSearchAndCacheReplay();
@@ -212,7 +343,13 @@ int main() {
         TestFormedRuleIsPhysicalAndReplayable();
         TestMultipleYouObjectsReplayTogether();
         TestBundledLevelTwoStillSolves();
+        TestBundledLevelThreeStillSolves();
+        TestVolcanoStillSolves();
         TestCancellationStopsEverySolverMode();
+        TestSolverPublishesProgressSnapshots();
+        TestWalkingWinSearchSkipsBlockedTargets();
+        TestSelfTransformationsRequireTwoWords();
+        TestTrappedSelfTransformationIsRejected();
         std::cout << "solver tests passed\n";
         return 0;
     } catch (const std::exception& error) {

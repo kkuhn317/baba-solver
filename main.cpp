@@ -13,6 +13,9 @@
 #include <atomic>
 #include <memory>
 #include <thread>
+#include <mutex>
+#include <chrono>
+#include <sstream>
 #include "constants.h"
 #include "definitions.h"
 #include "game.h"
@@ -27,6 +30,7 @@ int lastEditX = -1;
 int lastEditY = -1;
 
 constexpr UINT WM_SOLVER_COMPLETE = WM_APP + 1;
+constexpr UINT WM_SOLVER_PREVIEW = WM_APP + 2;
 constexpr UINT_PTR SOLUTION_TIMER_ID = 1;
 constexpr int ID_VIEW_SOLUTION = 1001;
 
@@ -48,7 +52,15 @@ struct SolverResult {
 std::atomic<bool> solverRunning{false};
 std::atomic<bool> cancelSolver{false};
 std::atomic<bool> appClosing{false};
+std::atomic<bool> liveSolverPreview{true};
+std::atomic<unsigned int> solverGeneration{0};
 std::shared_ptr<LogicSolver> activeLogicSolver;
+std::mutex solverPreviewMutex;
+GameState solverPreviewState;
+GameState solverViewStartState;
+std::string solverPreviewStatus;
+std::string solverProgressText;
+unsigned int solverPreviewGeneration = 0;
 GameState solutionStartState;
 std::string solutionMoves;
 size_t solutionMoveIndex = 0;
@@ -301,8 +313,10 @@ static void StartSolverJob(HWND hwnd, SolverKind kind,
     bool expected = false;
     if (!solverRunning.compare_exchange_strong(expected, true)) return;
     cancelSolver.store(false);
+    unsigned int generation = solverGeneration.fetch_add(1) + 1;
 
     GameState snapshot = currentState;
+    solverViewStartState = snapshot;
     int snapshotWidth = currentWidth;
     int snapshotHeight = currentHeight;
     int snapshotLevelIndex = currentLevelIndex;
@@ -313,16 +327,50 @@ static void StartSolverJob(HWND hwnd, SolverKind kind,
     }
 
     SetWindowTextA(hwnd, "Native Baba - SOLVING...");
+    solverProgressText = "Preparing search...";
     EnableWindow(hSolutionButton, FALSE);
     InvalidateRect(hwnd, NULL, TRUE);
 
     std::thread([hwnd, kind, snapshot = std::move(snapshot), snapshotWidth,
-                 snapshotHeight, snapshotLevelIndex, logic = std::move(logic)]() mutable {
+                 snapshotHeight, snapshotLevelIndex, logic = std::move(logic), generation]() mutable {
         SolverResult result{kind, "", snapshot, snapshotWidth, snapshotHeight, snapshotLevelIndex};
+        auto lastPreview = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+        auto publishProgress = [hwnd, generation, &lastPreview](
+                                   const GameState& state, const SolverProgress& progress) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - lastPreview < std::chrono::milliseconds(150)) return;
+            lastPreview = now;
+
+            std::ostringstream status;
+            status << progress.target;
+            if (!progress.phase.empty()) status << " | " << progress.phase;
+            if (progress.depthOrPushes >= 0) status << " | Step " << progress.depthOrPushes;
+            status << " | Checked " << progress.processed
+                   << " | Queue " << progress.queued;
+            if (progress.heuristic >= 0) status << " | Estimate " << progress.heuristic;
+            std::string statusText = status.str();
+            size_t textPrefix = 0;
+            while ((textPrefix = statusText.find("TEXT_", textPrefix)) != std::string::npos) {
+                statusText.erase(textPrefix, 5);
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(solverPreviewMutex);
+                if (liveSolverPreview.load()) solverPreviewState = state;
+                solverPreviewStatus = std::move(statusText);
+                solverPreviewGeneration = generation;
+            }
+            if (!appClosing.load() && IsWindow(hwnd)) {
+                PostMessage(hwnd, WM_SOLVER_PREVIEW, generation, 0);
+            }
+        };
         try {
-            if (kind == SolverKind::Basic) result.text = Solve(snapshot, &cancelSolver);
-            else if (kind == SolverKind::Optimized) result.text = SolveOptimized(snapshot, -1, -1, 200000, &cancelSolver);
-            else result.text = logic->NextSolution(&cancelSolver);
+            if (kind == SolverKind::Basic) result.text = Solve(snapshot, &cancelSolver, publishProgress);
+            else if (kind == SolverKind::Optimized) {
+                result.text = SolveOptimized(snapshot, -1, -1, 200000, &cancelSolver, publishProgress);
+            } else {
+                result.text = logic->NextSolution(&cancelSolver, publishProgress);
+            }
         } catch (const std::exception& error) {
             result.text = std::string("Solver error: ") + error.what();
         } catch (...) {
@@ -456,14 +504,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
 
         if (solverRunning.load()) {
-            RECT statusRect = {10, 10, 180, 42};
+            RECT statusRect = {10, 10, rc.right - 10, 58};
             HBRUSH statusBrush = CreateSolidBrush(RGB(30, 30, 30));
             FillRect(hdc, &statusRect, statusBrush);
             DeleteObject(statusBrush);
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(255, 220, 80));
-            const char* status = cancelSolver.load() ? "CANCELLING..." : "SOLVING...";
-            TextOutA(hdc, 20, 18, status, (int)strlen(status));
+            const char* status = cancelSolver.load() ? "CANCELLING..." :
+                (liveSolverPreview.load() ? "SOLVING...  (Esc cancels, V hides preview)" :
+                                            "SOLVING...  (Esc cancels, V shows preview)");
+            TextOutA(hdc, 20, 15, status, (int)strlen(status));
+            RECT detailRect = {20, 33, rc.right - 20, 54};
+            DrawTextA(hdc, solverProgressText.c_str(), -1, &detailRect,
+                      DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
         } else if (solutionPlaying) {
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(255, 220, 80));
@@ -526,6 +579,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (wParam == VK_ESCAPE) {
                 cancelSolver.store(true);
                 SetWindowTextA(hwnd, "Native Baba - CANCELLING...");
+                InvalidateRect(hwnd, NULL, TRUE);
+            } else if (wParam == 'V') {
+                bool enabled = !liveSolverPreview.load();
+                liveSolverPreview.store(enabled);
+                if (!enabled) currentState = solverViewStartState;
                 InvalidateRect(hwnd, NULL, TRUE);
             }
             return 0;
@@ -719,9 +777,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
         break;
+    case WM_SOLVER_PREVIEW: {
+        unsigned int generation = static_cast<unsigned int>(wParam);
+        if (!solverRunning.load() || generation != solverGeneration.load()) return 0;
+        {
+            std::lock_guard<std::mutex> lock(solverPreviewMutex);
+            if (solverPreviewGeneration != generation) return 0;
+            if (liveSolverPreview.load()) currentState = solverPreviewState;
+            solverProgressText = solverPreviewStatus;
+        }
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    }
     case WM_SOLVER_COMPLETE: {
         const SolverResult& result = *reinterpret_cast<const SolverResult*>(lParam);
+        currentWidth = result.startWidth;
+        currentHeight = result.startHeight;
+        currentLevelIndex = result.startLevelIndex;
+        currentState = result.startState;
+        ParseRules(currentState);
+        CheckWin(currentState);
         solverRunning.store(false);
+        solverProgressText.clear();
         std::string moves = ExtractSolutionMoves(result.kind, result.text);
         if (!moves.empty()) {
             solutionStartState = result.startState;
@@ -770,10 +847,23 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     // 1. Create the console window
     AllocConsole();
 
+    // Quick Edit puts the classic Windows console into a blocking selection
+    // mode when it is clicked. A solver log write can then appear to freeze
+    // until a key dismisses the selection, so disable that mode explicitly.
+    HANDLE consoleInput = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD consoleMode = 0;
+    if (consoleInput != INVALID_HANDLE_VALUE && GetConsoleMode(consoleInput, &consoleMode)) {
+        consoleMode |= ENABLE_EXTENDED_FLAGS;
+        consoleMode &= ~ENABLE_QUICK_EDIT_MODE;
+        SetConsoleMode(consoleInput, consoleMode);
+    }
+
     // 2. Connect std::cout and std::cerr to the new console window
     FILE* fp;
     freopen_s(&fp, "CONOUT$", "w", stdout);
     freopen_s(&fp, "CONOUT$", "w", stderr);
+    std::cout.setf(std::ios::unitbuf);
+    std::cerr.setf(std::ios::unitbuf);
 
     std::cout << "--- BABA SOLVER CONTROLS ---" << std::endl;
     std::cout << "ARROWS : Move" << std::endl;
@@ -809,7 +899,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR args, int nShow) {
     hSolutionButton = CreateWindowA("BUTTON", "View Solution",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
         10, 12 * TILE_SIZE + 6, 125, 30,
-        hwnd, reinterpret_cast<HMENU>(ID_VIEW_SOLUTION), hInst, NULL);
+        hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_VIEW_SOLUTION)), hInst, NULL);
     EnableWindow(hSolutionButton, FALSE);
     
     // Create Palette Window
